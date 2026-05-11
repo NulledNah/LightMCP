@@ -35,7 +35,7 @@ export async function startCatalogWatcher(): Promise<void> {
       try {
         await buildCatalog();
       } catch (err) {
-        console.error("❌ Catalog rebuild failed:", err);
+        console.error("Catalog rebuild failed:", err);
       }
     }, DEBOUNCE_MS);
   });

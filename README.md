@@ -20,10 +20,10 @@ LightMCP sits between your AI agent and your MCP servers. It exposes a **single 
 Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, get_footprint_info, ...]
 ```
 
-- 🧠 **Local model** — no data sent to external APIs
-- ⚡ **On-demand** — Ollama starts only when needed, shuts down after 2 minutes idle
-- 🔄 **Auto-updating catalog** — watches `mcp_config.json` and rebuilds on change
-- 🪟 **Windows auto-start** — registers via Task Scheduler
+- **Local model** — no data sent to external APIs
+- **On-demand** — Ollama starts only when needed, shuts down after 2 minutes idle
+- **Auto-updating catalog** — watches `mcp_config.json` and rebuilds on change
+- **Windows auto-start** — registers via Task Scheduler
 
 ---
 
