@@ -2,7 +2,14 @@
   "name": "lightmcp",
   "version": "0.1.0",
   "description": "A local LLM-powered semantic tool router for MCP — bypass the 100-tool limit and reduce context window usage in Antigravity and compatible AI agents.",
-  "keywords": ["mcp", "model-context-protocol", "ollama", "tool-routing", "ai", "antigravity"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ollama",
+    "tool-routing",
+    "ai",
+    "antigravity"
+  ],
   "author": "",
   "license": "MIT",
   "type": "module",
@@ -15,7 +22,9 @@
     "dev": "tsx src/cli/index.ts",
     "start": "node dist/cli/index.js start",
     "lint": "eslint src --ext .ts",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
@@ -27,9 +36,12 @@
   "devDependencies": {
     "@types/express": "^5.0.1",
     "@types/node": "^22.15.17",
+    "@types/supertest": "^7.2.0",
     "rimraf": "^6.0.1",
+    "supertest": "^7.2.2",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.6"
   },
   "engines": {
     "node": ">=20.0.0"
