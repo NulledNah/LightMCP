@@ -1,6 +1,6 @@
 # LightMCP
 
-> **A local LLM-powered semantic tool router for MCP** — bypass the 100-tool limit and reduce context window usage in Antigravity and any MCP-compatible AI agent.
+> **A local LLM-powered semantic tool router for MCP** — bypass the Antigravity's 100-tool limit and reduce context window usage in any MCP-compatible AI agent.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
@@ -33,7 +33,7 @@ Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, 
 |-----------|---------|-------------|
 | GPU VRAM  | 6 GB    | 8 GB (RTX 3070 Ti) |
 | RAM       | 12 GB   | 16 GB |
-| CPU       | Any modern | Intel i5-11600K or equivalent |
+| CPU       | Any modern | Intel i5-11600K or better |
 | Disk      | 6 GB free | 10 GB free |
 
 The default model (`qwen2.5-coder:7b-instruct` Q4_K_M) uses ~4.5 GB VRAM.
@@ -44,8 +44,8 @@ The default model (`qwen2.5-coder:7b-instruct` Q4_K_M) uses ~4.5 GB VRAM.
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/YOUR_USERNAME/lightmcp.git
-cd lightmcp
+git clone https://github.com/NulledNah/LightMCP.git
+cd LightMCP
 npm install
 
 # 2. Build
