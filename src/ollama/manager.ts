@@ -17,7 +17,7 @@ function resetIdleTimer(idleTimeoutSeconds: number): void {
   if (_idleTimer) clearTimeout(_idleTimer);
   _idleTimer = setTimeout(async () => {
     console.log(
-      `⏰ Ollama idle for ${idleTimeoutSeconds}s — shutting down to free VRAM…`
+      `[INFO] Ollama idle for ${idleTimeoutSeconds}s - shutting down to free VRAM...`
     );
     await stopOllama();
   }, idleTimeoutSeconds * 1_000);
@@ -64,7 +64,7 @@ export async function startOllama(): Promise<void> {
   }
 
   _state = "starting";
-  console.log("🚀 Starting Ollama…");
+  console.log("[INFO] Starting Ollama...");
 
   _startPromise = (async () => {
     try {
@@ -94,7 +94,7 @@ export async function startOllama(): Promise<void> {
       await waitReady(host, startupTimeoutSeconds);
       _state = "ready";
       _startPromise = null;
-      console.log("✅ Ollama is ready");
+      console.log("[OK] Ollama is ready");
       resetIdleTimer(idleTimeoutSeconds);
     } catch (err) {
       _state = "stopped";
@@ -128,7 +128,7 @@ export async function stopOllama(): Promise<void> {
       });
     });
     _proc = null;
-    console.log("🛑 Ollama stopped — VRAM freed");
+    console.log("[INFO] Ollama stopped - VRAM freed");
   }
   _state = "stopped";
 }
@@ -145,7 +145,7 @@ export async function ensureModelPulled(): Promise<void> {
   const cfg = await loadConfig();
   const { host, model } = cfg.ollama;
 
-  console.log(`🔍 Checking model: ${model}…`);
+  console.log(`[INFO] Checking model: ${model}...`);
   try {
     const res = await fetch(`${host}/api/tags`);
     const data = (await res.json()) as { models?: { name: string }[] };
@@ -155,7 +155,7 @@ export async function ensureModelPulled(): Promise<void> {
     );
 
     if (present) {
-      console.log(`✅ Model ${model} already present`);
+      console.log(`[OK] Model ${model} already present`);
       return;
     }
   } catch {
@@ -163,7 +163,7 @@ export async function ensureModelPulled(): Promise<void> {
     return;
   }
 
-  console.log(`⬇️  Pulling model: ${model} (this may take a while)…`);
+  console.log(`[INFO] Pulling model: ${model} (this may take a while)...`);
   const proc = spawn("ollama", ["pull", model], {
     stdio: "inherit",
     shell: false,
@@ -175,7 +175,7 @@ export async function ensureModelPulled(): Promise<void> {
     });
     proc.on("error", reject);
   });
-  console.log(`✅ Model ${model} ready`);
+  console.log(`[OK] Model ${model} ready`);
 }
 
 export function getOllamaState(): OllamaState {

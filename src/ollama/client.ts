@@ -19,7 +19,7 @@ interface OllamaChatRequest {
   model: string;
   messages: OllamaMessage[];
   stream: false;
-  format: "json";
+  format: "json" | Record<string, any>;
   options?: {
     temperature?: number;
     num_predict?: number;
@@ -48,7 +48,16 @@ export async function selectTools(
   const body: OllamaChatRequest = {
     model,
     stream: false,
-    format: "json",
+    format: {
+      type: "object",
+      properties: {
+        tools: {
+          type: "array",
+          items: { type: "string" }
+        }
+      },
+      required: ["tools"]
+    },
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -67,7 +76,7 @@ export async function selectTools(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(120_000),
       });
 
       if (!res.ok) {
@@ -85,7 +94,7 @@ export async function selectTools(
         throw new Error(`Model returned invalid JSON: ${raw.slice(0, 200)}`);
       }
 
-      const result = SelectionSchema.safeParse(parsed);
+      const result = SelectionSchema.safeParse((parsed as any).tools);
       if (!result.success) {
         throw new Error(
           `Model returned unexpected schema: ${JSON.stringify(parsed).slice(0, 200)}`

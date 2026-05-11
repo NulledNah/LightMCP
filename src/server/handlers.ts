@@ -58,7 +58,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
   // 1. Load catalog (auto-build if missing)
   let catalog = await getCatalogTools();
   if (catalog.length === 0) {
-    console.log("📂 Catalog empty — building for the first time…");
+    console.log("[INFO] Catalog empty - building for the first time...");
     const built = await buildCatalog();
     catalog = built.tools;
   }
@@ -113,7 +113,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
   };
 
   console.log(
-    `  ✔ Selected ${validEntries.length}/${catalog.length} tools for: "${task.slice(0, 60)}…"`
+    `  [OK] Selected ${validEntries.length}/${catalog.length} tools for: "${task.slice(0, 60)}..."`
   );
 
   return {

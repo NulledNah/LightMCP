@@ -18,7 +18,7 @@ export async function startCatalogWatcher(): Promise<void> {
 
   const mcpConfigPath = await resolveMcpConfigPath(cfg);
 
-  console.log(`👁  Watching for changes: ${mcpConfigPath}`);
+  console.log(`[INFO] Watching for changes: ${mcpConfigPath}`);
 
   _watcher = chokidar.watch(mcpConfigPath, {
     persistent: true,
@@ -30,7 +30,7 @@ export async function startCatalogWatcher(): Promise<void> {
     // Debounce to avoid rebuilding multiple times during saves
     if (_rebuildTimer) clearTimeout(_rebuildTimer);
     _rebuildTimer = setTimeout(async () => {
-      console.log("♻️  mcp_config.json changed — rebuilding catalog…");
+      console.log("[INFO] mcp_config.json changed - rebuilding catalog...");
       invalidateCatalog();
       try {
         await buildCatalog();

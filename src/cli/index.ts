@@ -40,11 +40,11 @@ program
 
     // Build catalog on startup if missing
     if (!existsSync(outPath)) {
-      console.log("📂 No catalog found — building now…");
+      console.log("[INFO] No catalog found - building now...");
       await buildCatalog();
     } else {
       const tools = await getCatalogTools();
-      console.log(`📂 Catalog loaded: ${tools.length} tools`);
+      console.log(`[INFO] Catalog loaded: ${tools.length} tools`);
     }
 
     // Start file watcher
@@ -80,14 +80,14 @@ program
 
     console.log("\n── LightMCP Status ──────────────────────────────");
     console.log(`  Server port:   ${cfg.server.port}`);
-    console.log(`  Ollama:        ${ollamaAlive ? "✅ running" : "⭕ stopped"} (${cfg.ollama.host})`);
+    console.log(`  Ollama:        ${ollamaAlive ? "[OK] running" : "[INFO] stopped"} (${cfg.ollama.host})`);
     console.log(`  Model:         ${cfg.ollama.model}`);
     if (meta) {
-      console.log(`  Catalog:       ✅ ${meta.toolCount} tools across ${meta.serverCount} servers`);
+      console.log(`  Catalog:       [OK] ${meta.toolCount} tools across ${meta.serverCount} servers`);
       console.log(`  Built at:      ${new Date(meta.builtAt).toLocaleString()}`);
       console.log(`  Active-only:   ${meta.activeOnly}`);
     } else {
-      console.log("  Catalog:       ⚠️  not built (run: lightmcp build-catalog)");
+      console.log("  Catalog:       [WARN] not built (run: lightmcp build-catalog)");
     }
     console.log("─────────────────────────────────────────────────\n");
   });
@@ -105,15 +105,15 @@ program
 
     let catalog = await getCatalogTools();
     if (catalog.length === 0) {
-      console.log("📂 No catalog found — building first…");
+      console.log("[INFO] No catalog found - building first...");
       const built = await buildCatalog();
       catalog = built.tools;
     }
 
     const hints = opts.hints ? opts.hints.split(",").map((h) => h.trim()) : [];
 
-    console.log(`\n🔍 Task: "${task}"`);
-    console.log(`📚 Catalog: ${catalog.length} tools\n`);
+    console.log(`\n[INFO] Task: "${task}"`);
+    console.log(`[INFO] Catalog: ${catalog.length} tools\n`);
 
     await ensureOllamaReady();
 
@@ -121,7 +121,7 @@ program
       const selected = await selectTools(task, catalog, hints);
       const validTools = catalog.filter((t) => selected.includes(t.name));
 
-      console.log(`\n✅ Selected ${validTools.length} tools:\n`);
+      console.log(`\n[OK] Selected ${validTools.length} tools:\n`);
       for (const t of validTools) {
         console.log(`  • [${t.serverKey}] ${t.name}`);
         console.log(`    ${t.shortDesc}`);
@@ -132,7 +132,7 @@ program
           (n) => !catalog.some((t) => t.name === n)
         );
         console.log(
-          `\n⚠️  ${invalid.length} hallucinated names (ignored): ${invalid.join(", ")}`
+          `\n[WARN] ${invalid.length} hallucinated names (ignored): ${invalid.join(", ")}`
         );
       }
     } finally {
@@ -150,16 +150,16 @@ program
     const { execSync } = await import("node:child_process");
     const os = await import("node:os");
 
-    console.log("\n🔧 LightMCP Setup\n");
+    console.log("\n[INFO] LightMCP Setup\n");
 
     // 1. Check / install Ollama
     let ollamaInstalled = false;
     try {
       execSync("ollama --version", { stdio: "ignore" });
       ollamaInstalled = true;
-      console.log("✅ Ollama already installed");
+      console.log("[OK] Ollama already installed");
     } catch {
-      console.log("📦 Ollama not found. Running installer…");
+      console.log("[INFO] Ollama not found. Running installer...");
     }
 
     if (!ollamaInstalled) {
@@ -189,13 +189,13 @@ program
     );
 
     const cfg = await loadConfig();
-    console.log(`\n⬇️  Checking model: ${cfg.ollama.model}`);
+    console.log(`\n[INFO] Checking model: ${cfg.ollama.model}`);
     await startOllama();
     await ensureModelPulled();
     await stopOllama();
 
     // 3. Build initial catalog
-    console.log("\n📂 Building initial tool catalog…");
+    console.log("\n[INFO] Building initial tool catalog...");
     const { buildCatalog } = await import("../catalog/builder.js");
     await buildCatalog();
 
@@ -203,7 +203,7 @@ program
     if (os.default.platform() === "win32") {
       const scriptPath = path.resolve(__dirname, "../../scripts/setup.ps1");
       if (existsSync(scriptPath)) {
-        console.log("\n⏰ Registering Windows startup task…");
+        console.log("\n[INFO] Registering Windows startup task...");
         try {
           execSync(
             `powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RegisterTask`,
@@ -211,7 +211,7 @@ program
           );
         } catch {
           console.warn(
-            "  ⚠️  Could not register task automatically.\n" +
+            "  [WARN] Could not register task automatically.\n" +
             `  Run manually in elevated PowerShell:\n` +
             `  powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RegisterTask`
           );
@@ -219,7 +219,7 @@ program
       }
     }
 
-    console.log("\n🎉 LightMCP setup complete!");
+    console.log("\n[OK] LightMCP setup complete!");
     console.log("  Add to your mcp_config.json:");
     console.log(`    "lightmcp": { "serverUrl": "http://127.0.0.1:${cfg.server.port}/mcp" }`);
     console.log("\n  Then run: lightmcp start\n");

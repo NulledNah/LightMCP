@@ -24,18 +24,16 @@ export function buildToolSelectionPrompt(
     d: t.shortDesc,
   }));
 
-  const systemPrompt = `You are a precise tool selector for the LightMCP system.
+  const systemPrompt = `You are a strict JSON-only API.
 Your ONLY job is to analyze a task description and select the minimum set of tools required to complete it.
 
-RULES (MUST follow strictly):
-1. Respond with ONLY a valid JSON array of tool name strings. No markdown, no explanation, no code blocks.
-2. Include ONLY tools that are DIRECTLY necessary for the given task.
-3. Do NOT include general-purpose or exploratory tools unless explicitly required.
-4. If no tools are needed, respond with: []
-5. Tool names must be copied EXACTLY as they appear in the catalog.
-6. Maximum 15 tools per response.
-
-Example response: ["create_footprint","list_footprint_libraries","get_footprint_info"]`;
+RULES:
+1. Respond with ONLY a valid JSON object. Do not use markdown backticks.
+2. The JSON object MUST have a single property "tools", which is an array of strings.
+3. The strings must be ONLY the names of the tools you select.
+4. Example of valid response: {"tools": ["create_footprint", "list_footprint_libraries"]}
+5. If no tools are needed, respond with: {"tools": []}
+6. Include ONLY tools that are DIRECTLY necessary. Maximum 15 tools.`;
 
   const hintsSection =
     hints.length > 0
@@ -44,10 +42,10 @@ Example response: ["create_footprint","list_footprint_libraries","get_footprint_
 
   const userPrompt = `TASK: ${task}${hintsSection}
 
-AVAILABLE TOOLS (format: {"n":"name","s":"server","d":"description"}):
-${JSON.stringify(compact)}
+AVAILABLE TOOLS:
+${compact.map(t => `- "${t.n}" (${t.s}): ${t.d}`).join("\n")}
 
-Respond with the JSON array of tool names needed for this task.`;
+Respond ONLY with the JSON object {"tools": [...]}.`;
 
   return { systemPrompt, userPrompt };
 }

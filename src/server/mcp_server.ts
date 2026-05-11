@@ -90,7 +90,7 @@ export async function startServer(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const httpServer = app.listen(port, host, () => {
       console.log(
-        `\n🌐 LightMCP Router running at http://${host}:${port}/mcp`
+        `\n[INFO] LightMCP Router running at http://${host}:${port}/mcp`
       );
       console.log(
         `   Health: http://${host}:${port}/health\n`
@@ -106,7 +106,7 @@ export async function startServer(): Promise<void> {
       const { stopCatalogWatcher } = await import("../catalog/watcher.js");
       await Promise.all([stopOllama(), stopCatalogWatcher()]);
       httpServer.close(() => {
-        console.log("👋 LightMCP stopped");
+        console.log("[INFO] LightMCP stopped");
         process.exit(0);
       });
     };

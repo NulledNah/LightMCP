@@ -50,11 +50,13 @@ async function queryToolsViaStdio(
     const proc: ChildProcess = spawn(command, args, {
       env,
       stdio: ["pipe", "pipe", "pipe"],
-      shell: false,
+      shell: process.platform === "win32",
     });
 
     let stdout = "";
     let resolved = false;
+    const allTools: ToolsDef[] = [];
+    let nextReqId = 2;
 
     const timer = setTimeout(() => {
       if (!resolved) {
@@ -75,14 +77,25 @@ async function queryToolsViaStdio(
         if (!line.trim()) continue;
         try {
           const msg = JSON.parse(line) as JsonRpcResponse;
-          if (msg.id === 2 && msg.result) {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timer);
-              proc.kill();
-              const tools =
-                (msg.result as { tools?: ToolsDef[] }).tools ?? [];
-              resolve(tools);
+          if (msg.id && msg.id >= 2 && msg.result) {
+            const res = msg.result as { tools?: ToolsDef[]; nextCursor?: string };
+            if (res.tools) allTools.push(...res.tools);
+
+            if (res.nextCursor) {
+              nextReqId++;
+              send({
+                jsonrpc: "2.0",
+                id: nextReqId,
+                method: "tools/list",
+                params: { cursor: res.nextCursor },
+              });
+            } else {
+              if (!resolved) {
+                resolved = true;
+                clearTimeout(timer);
+                proc.kill();
+                resolve(allTools);
+              }
             }
           }
         } catch {
@@ -174,43 +187,49 @@ async function queryToolsViaHttp(
     // Extract session ID if present (MCP Streamable HTTP spec)
     const sessionId = initRes.headers.get("mcp-session-id") ?? undefined;
 
-    // 2. tools/list
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
     };
     if (sessionId) headers["mcp-session-id"] = sessionId;
 
-    const listRes = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/list",
-        params: {},
-      }),
-      signal: controller.signal,
-    });
+    let nextCursor: string | undefined = undefined;
+    const allTools: ToolsDef[] = [];
+    let reqId = 2;
+
+    do {
+      const listRes = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: reqId++,
+          method: "tools/list",
+          params: nextCursor ? { cursor: nextCursor } : {},
+        }),
+        signal: controller.signal,
+      });
+
+      const contentType = listRes.headers.get("content-type") ?? "";
+      let data: JsonRpcResponse;
+
+      if (contentType.includes("text/event-stream")) {
+        const text = await listRes.text();
+        const dataLine = text.split("\n").find((l) => l.startsWith("data:"));
+        if (!dataLine) break;
+        data = JSON.parse(dataLine.slice(5).trim()) as JsonRpcResponse;
+      } else {
+        data = (await listRes.json()) as JsonRpcResponse;
+      }
+
+      const res = data.result as { tools?: ToolsDef[]; nextCursor?: string } | undefined;
+      if (res?.tools) allTools.push(...res.tools);
+      nextCursor = res?.nextCursor;
+
+    } while (nextCursor);
 
     clearTimeout(timer);
-
-    const contentType = listRes.headers.get("content-type") ?? "";
-    let data: JsonRpcResponse;
-
-    if (contentType.includes("text/event-stream")) {
-      // Parse SSE stream — pick the first data event
-      const text = await listRes.text();
-      const dataLine = text
-        .split("\n")
-        .find((l) => l.startsWith("data:"));
-      if (!dataLine) return [];
-      data = JSON.parse(dataLine.slice(5).trim()) as JsonRpcResponse;
-    } else {
-      data = (await listRes.json()) as JsonRpcResponse;
-    }
-
-    return (data.result as { tools?: ToolsDef[] })?.tools ?? [];
+    return allTools;
   } catch (err: unknown) {
     clearTimeout(timer);
     const msg = err instanceof Error ? err.message : String(err);
@@ -238,19 +257,24 @@ export async function buildCatalog(opts: {
   const servers: CatalogServer[] = [];
 
   console.log(
-    `\n📂 Building catalog from: ${mcpConfigPath}` +
+    `\n[INFO] Building catalog from: ${mcpConfigPath}` +
     (activeOnly ? " [active-only]" : " [all tools]")
   );
 
   for (const [key, serverCfg] of Object.entries(mcpConfig.mcpServers)) {
+    if (key === "lightmcp") {
+      console.log(`  [SKIP] ${key} - skipped (prevent self-loop)`);
+      continue;
+    }
+
     const isDisabled = serverCfg.disabled === true;
     if (activeOnly && isDisabled) {
-      console.log(`  ⏭  ${key} — skipped (disabled)`);
+      console.log(`  [SKIP] ${key} - skipped (disabled)`);
       continue;
     }
 
     const transport: "stdio" | "http" = serverCfg.serverUrl ? "http" : "stdio";
-    console.log(`  🔌 ${key} [${transport}]${isDisabled ? " (disabled)" : ""}…`);
+    console.log(`  [INFO] ${key} [${transport}]${isDisabled ? " (disabled)" : ""}...`);
 
     let rawTools: ToolsDef[] = [];
 
@@ -262,12 +286,9 @@ export async function buildCatalog(opts: {
       console.warn(`  [warn] ${key}: no command or serverUrl, skipping`);
     }
 
-    const disabledTools = new Set(serverCfg.disabledTools ?? []);
     let added = 0;
 
     for (const t of rawTools) {
-      // Skip tools explicitly disabled in config
-      if (disabledTools.has(t.name)) continue;
 
       tools.push({
         name: t.name,
@@ -287,7 +308,7 @@ export async function buildCatalog(opts: {
       toolCount: added,
     });
 
-    console.log(`     ✔ ${added} tools collected`);
+    console.log(`     [OK] ${added} tools collected`);
   }
 
   const catalog: ToolCatalog = {
@@ -301,7 +322,7 @@ export async function buildCatalog(opts: {
   // Persist to disk
   const outPath = path.resolve(process.cwd(), cfg.catalog.outputPath);
   await writeFile(outPath, JSON.stringify(catalog, null, 2), "utf-8");
-  console.log(`\n✅ Catalog saved: ${outPath} (${tools.length} tools)\n`);
+  console.log(`\n[OK] Catalog saved: ${outPath} (${tools.length} tools)\n`);
 
   return catalog;
 }
