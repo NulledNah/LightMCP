@@ -1,0 +1,19 @@
+{
+  "server": {
+    "port": 3131,
+    "host": "127.0.0.1"
+  },
+  "ollama": {
+    "host": "http://127.0.0.1:11434",
+    "model": "qwen2.5-coder:7b-instruct",
+    "idleTimeoutSeconds": 120,
+    "startupTimeoutSeconds": 30,
+    "maxRetries": 2
+  },
+  "catalog": {
+    "activeOnly": false,
+    "outputPath": "tool_catalog.json",
+    "watchMcpConfig": true
+  },
+  "mcpConfigPath": null
+}
