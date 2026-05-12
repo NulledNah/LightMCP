@@ -150,7 +150,10 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
       );
       _registeredTools.push(registered);
       _lastSelectedNames.push(toolName);
-      trackTool(toolName, entry.shortDesc || entry.description?.slice(0, 100) || `Tool from ${serverKey}`);
+      trackTool(toolName, entry.shortDesc || entry.description?.slice(0, 100) || `Tool from ${serverKey}`, {
+        type: "object",
+        properties: {},
+      });
     }
 
     if (validEntries.length > 0) {

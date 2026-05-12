@@ -22,8 +22,9 @@ let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
 
-// Track registered tool names for compatibility layer
+// Track registered tool names and schemas for compatibility layer
 const _toolNames: { name: string; description: string }[] = [];
+const _toolSchemas = new Map<string, Record<string, unknown>>();
 
 async function getVersion(): Promise<string> {
   if (_version) return _version;
@@ -43,18 +44,19 @@ export function getMcpServer(): McpServer {
   return _mcpServer;
 }
 
-/** Register a tool name for the compatibility tools/list handler */
-export function trackTool(name: string, description: string): void {
-  // Avoid duplicates
+/** Register a tool for the compatibility tools/list handler */
+export function trackTool(name: string, description: string, inputSchema?: Record<string, unknown>): void {
   const idx = _toolNames.findIndex(t => t.name === name);
   if (idx >= 0) _toolNames[idx] = { name, description };
   else _toolNames.push({ name, description });
+  if (inputSchema) _toolSchemas.set(name, inputSchema);
 }
 
 /** Remove a tracked tool name */
 export function untrackTool(name: string): void {
   const idx = _toolNames.findIndex(t => t.name === name);
   if (idx >= 0) _toolNames.splice(idx, 1);
+  _toolSchemas.delete(name);
 }
 
 export async function createMcpServer(): Promise<express.Application> {
@@ -94,7 +96,21 @@ export async function createMcpServer(): Promise<express.Application> {
     },
     handleGetTools
   );
-  trackTool("get_task_tools", "Discover the exact tools relevant to your task.");
+  trackTool("get_task_tools", "Discover the exact tools relevant to your task.", {
+    type: "object",
+    properties: {
+      task: {
+        type: "string",
+        description: "Natural language description of the task you need tools for.",
+      },
+      hints: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional keywords to guide selection.",
+      },
+    },
+    required: ["task"],
+  });
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
@@ -129,6 +145,7 @@ export async function createMcpServer(): Promise<express.Application> {
         const tools = _toolNames.map(t => ({
           name: t.name,
           description: t.description,
+          inputSchema: _toolSchemas.get(t.name) ?? { type: "object" },
         }));
 
         res.json({ jsonrpc: "2.0", id: body.id, result: { tools } });
