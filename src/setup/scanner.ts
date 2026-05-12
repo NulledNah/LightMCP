@@ -5,7 +5,11 @@
 // ============================================================
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
+
+const __agentDir = path.dirname(fileURLToPath(import.meta.url));
+const BRIDGE_PATH = path.resolve(__agentDir, "..", "server", "bridge.js");
 
 // ── Agent definitions ─────────────────────────────────────
 
@@ -34,7 +38,7 @@ const AGENTS: AgentDef[] = [
     ],
     configPath: path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json"),
     mcpServersKey: "mcpServers",
-    lightMCPEntry: { serverUrl: "http://127.0.0.1:3131/mcp" },
+    lightMCPEntry: { command: "node", args: [BRIDGE_PATH] },
     serverEntryStyle: "mcpServers",
   },
   {
