@@ -23,6 +23,26 @@ let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
 
+// Track registered tool info for compatibility tools/list handler
+const _toolList: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
+const _toolMeta = new Map<string, string>(); // toolName → serverKey
+
+/** Track a tool for the tools/list compatibility handler */
+export function trackTool(name: string, description: string, serverKey: string, inputSchema?: Record<string, unknown>): void {
+  const idx = _toolList.findIndex(t => t.name === name);
+  const entry = { name, description, inputSchema: inputSchema ?? { type: "object" } };
+  if (idx >= 0) _toolList[idx] = entry;
+  else _toolList.push(entry);
+  _toolMeta.set(name, serverKey);
+}
+
+/** Remove a tracked tool */
+export function untrackTool(name: string): void {
+  const idx = _toolList.findIndex(t => t.name === name);
+  if (idx >= 0) _toolList.splice(idx, 1);
+  _toolMeta.delete(name);
+}
+
 async function getVersion(): Promise<string> {
   if (_version) return _version;
   try {
@@ -88,6 +108,20 @@ export async function createMcpServer(): Promise<express.Application> {
     },
     handleGetTools
   );
+  trackTool("get_task_tools",
+    "Call this before any task to discover which tools are available. " +
+    "Provide a description of what you need to accomplish and receive " +
+    "the exact set of tools relevant to your task.",
+    "lightmcp",
+    {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "Natural language description of the task you need tools for." },
+        hints: { type: "array", items: { type: "string" }, description: "Optional keywords to guide selection." },
+      },
+      required: ["task"],
+    }
+  );
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
@@ -120,35 +154,8 @@ export async function createMcpServer(): Promise<express.Application> {
 
       // Handle tools/list without session (Antigravity spawns new process per call)
       if (method === "tools/list" && !req.headers["mcp-session-id"]) {
-        res.json({
-          jsonrpc: "2.0",
-          id: body.id,
-          result: {
-            tools: [{
-              name: "get_task_tools",
-              description:
-                "Call this before any task to discover which tools are available. " +
-                "Provide a description of what you need to accomplish and receive " +
-                "the exact set of tools relevant to your task. The returned tools " +
-                "become immediately callable. Use this as the first step in every task.",
-              inputSchema: {
-                type: "object",
-                properties: {
-                  task: {
-                    type: "string",
-                    description: "Natural language description of the task you need tools for.",
-                  },
-                  hints: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Optional keywords to guide selection.",
-                  },
-                },
-                required: ["task"],
-              },
-            }],
-          },
-        });
+        const tools = [..._toolList];
+        res.json({ jsonrpc: "2.0", id: body.id, result: { tools } });
         return;
       }
 
@@ -164,13 +171,12 @@ export async function createMcpServer(): Promise<express.Application> {
           return;
         }
 
-        // Look up dynamically registered tool on McpServer and forward via proxy
+        // Look up dynamically registered tool and forward via proxy
         try {
-          const registered = (_mcpServer as any)._registeredTools as Map<string, any> | undefined;
-          const rt = registered?.get(toolName);
-          if (rt?._meta?.serverKey) {
+          const serverKey = _toolMeta.get(toolName);
+          if (serverKey) {
             const { callTool } = await import("./proxy.js");
-            const proxyResult = await callTool(rt._meta.serverKey, toolName, toolArgs);
+            const proxyResult = await callTool(serverKey, toolName, toolArgs);
             res.json({ jsonrpc: "2.0", id: body.id, result: proxyResult });
             return;
           }
