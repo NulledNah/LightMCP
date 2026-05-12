@@ -3,11 +3,19 @@ dist/
 *.js.map
 *.d.ts.map
 
+# Generated test artifacts
+tests/**/*.js
+tests/**/*.d.ts
+
 # Generated catalog (can be large, regenerated on startup)
 tool_catalog.json
 
 # Environment
 .env
+
+# Test / temp outputs
+test_output*.txt
+dummy.json
 
 # OS
 .DS_Store

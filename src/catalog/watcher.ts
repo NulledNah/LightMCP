@@ -31,9 +31,9 @@ export async function startCatalogWatcher(): Promise<void> {
     if (_rebuildTimer) clearTimeout(_rebuildTimer);
     _rebuildTimer = setTimeout(async () => {
       console.log("[INFO] mcp_config.json changed - rebuilding catalog...");
-      invalidateCatalog();
       try {
         await buildCatalog();
+        invalidateCatalog();
       } catch (err) {
         console.error("Catalog rebuild failed:", err);
       }

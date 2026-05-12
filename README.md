@@ -14,15 +14,18 @@ MCP-compatible agents (like Antigravity) have a hard limit of **100 tools** acro
 
 ## The Solution
 
-LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`lightmcp_get_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tool definitions** for that task.
+LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`lightmcp_get_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them — LightMCP transparently forwards each call to the real downstream MCP server.
 
 ```
-Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, get_footprint_info, ...]
+Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, ...]
+Agent → tools/list → [create_footprint, get_footprint_info, ...]  (dynamically registered)
+Agent → tools/call("create_footprint", {...}) → LightMCP → KiCad MCP → result
 ```
 
-- **Local model** — no data sent to external APIs
+- **Fully local** — no data sent to external APIs
 - **On-demand** — Ollama starts only when needed, shuts down after 2 minutes idle
 - **Auto-updating catalog** — watches `mcp_config.json` and rebuilds on change
+- **Transparent proxy** — agent calls tools through LightMCP as if they were its own
 - **Windows auto-start** — registers via Task Scheduler
 
 ---
@@ -60,7 +63,7 @@ lightmcp setup
 lightmcp start
 ```
 
-Then add to your `mcp_config.json`:
+Then add to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.gemini\antigravity\mcp_config.json`):
 
 ```json
 {
@@ -72,35 +75,42 @@ Then add to your `mcp_config.json`:
 }
 ```
 
+**Important:** Only LightMCP goes in the agent's config. All other MCP servers (KiCad, Chrome DevTools, etc.) are configured in the file pointed to by `mcpConfigPath` in `lightmcp_config.json` (default: auto-detected from the standard Antigravity path). LightMCP reads that file to build its internal tool catalog.
+
 ---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────┐
-│   AI Agent (Antigravity / Claude)    │
-│                                      │
-│  Calls: lightmcp_get_tools(task)     │
-└────────────────┬─────────────────────┘
-                 │ MCP (HTTP)
-                 ▼
-┌──────────────────────────────────────┐
-│   LightMCP Router  (localhost:3131)  │
-│                                      │
-│  1. Load tool catalog                │
-│  2. Start Ollama (if idle)           │
-│  3. qwen2.5-coder:7b selects tools   │
-│  4. Validate & return MCP schemas    │
-│  5. Reset 120s idle timer            │
-└────────────────┬─────────────────────┘
-                 │ Ollama REST
-                 ▼
-┌──────────────────────────────────────┐
-│   Ollama (localhost:11434)           │
-│   qwen2.5-coder:7b-instruct          │
-│   → Starts on demand                 │
-│   → Stops after 120s idle            │
-└──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│   AI Agent (Antigravity / openCode / Claude)        │
+│                                                     │
+│  Connects ONLY to LightMCP (1 server in config)     │
+│  1. Calls lightmcp_get_tools(task)                  │
+│  2. LightMCP returns selected tool names            │
+│  3. Selected tools are dynamically registered       │
+│  4. Agent calls tools through LightMCP              │
+└────────────────────┬────────────────────────────────┘
+                     │ MCP Streamable HTTP
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│   LightMCP Router  (localhost:3131)                 │
+│                                                     │
+│  ┌─ lightmcp_get_tools: Ollama semantic selection ─┐│
+│  └─ Dynamic tool registration & forward proxy ─────┘│
+│                                                     │
+│  Connection pool to downstream servers:             │
+│  ┌─ KiCad MCP (stdio)                              │
+│  ├─ Chrome DevTools MCP (HTTP)                     │
+│  └─ ... (all servers from internal config)         │
+└────────────────────┬────────────────────────────────┘
+                     │ Ollama REST
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│   Ollama (localhost:11434)                          │
+│   qwen2.5-coder:7b-instruct                        │
+│   → Starts on demand / Stops after idle timeout     │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -129,41 +139,51 @@ Edit `lightmcp_config.json` in the project root:
     "host": "127.0.0.1"
   },
   "ollama": {
+    "host": "http://127.0.0.1:11434",
     "model": "qwen2.5-coder:7b-instruct",
     "idleTimeoutSeconds": 120,
-    "startupTimeoutSeconds": 30
+    "startupTimeoutSeconds": 30,
+    "maxRetries": 2
   },
   "catalog": {
     "activeOnly": false,
+    "outputPath": "tool_catalog.json",
     "watchMcpConfig": true
-  }
+  },
+  "mcpConfigPath": null
 }
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `server.port` | `3131` | Port for the MCP HTTP server |
+| `server.host` | `127.0.0.1` | Host to bind the server |
+| `ollama.host` | `http://127.0.0.1:11434` | Ollama API URL |
 | `ollama.model` | `qwen2.5-coder:7b-instruct` | Ollama model for tool selection |
 | `ollama.idleTimeoutSeconds` | `120` | Seconds before Ollama is shut down |
-| `catalog.activeOnly` | `false` | Include tools from disabled servers |
+| `ollama.startupTimeoutSeconds` | `30` | Max seconds to wait for Ollama to start |
+| `ollama.maxRetries` | `2` | Retries on Ollama inference failure |
+| `catalog.activeOnly` | `false` | Only include tools from enabled servers |
+| `catalog.outputPath` | `tool_catalog.json` | Where to persist the tool catalog |
 | `catalog.watchMcpConfig` | `true` | Auto-rebuild catalog on config changes |
-| `mcpConfigPath` | auto | Override path to `mcp_config.json` |
+| `mcpConfigPath` | auto | Override path to the MCP config listing all servers |
 
 ---
 
-## How to Use in Antigravity
+## How to Use
 
-Once running, your agent can call `lightmcp_get_tools` before any task:
+Once running, your agent connects only to LightMCP. The full flow:
 
 ```
-User: Create a KiCad footprint for a JST-SH connector
-
-Agent: [calls lightmcp_get_tools with task="create a KiCad footprint for a JST-SH connector"]
-LightMCP: returns [create_footprint, list_footprint_libraries, get_footprint_info]
-Agent: [uses only those 3 tools]
+1. Agent calls lightmcp_get_tools("create a KiCad footprint for a JST-SH")
+2. Ollama selects: create_footprint, list_footprint_libraries, get_footprint_info
+3. LightMCP dynamically registers these 3 tools on its MCP server
+4. Agent receives notification, calls tools/list, sees the 3 tools
+5. Agent calls create_footprint(...) through LightMCP
+6. LightMCP forwards the call to KiCad MCP, returns the result
 ```
 
-The response includes full MCP-compatible tool schemas with input validation, so the agent can use them immediately.
+The agent never sees the 137 KiCad tools — only the 3 relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
 
 ---
 

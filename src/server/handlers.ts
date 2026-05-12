@@ -1,6 +1,8 @@
 // ============================================================
 // LightMCP — MCP Server Handler
-// Implements the `lightmcp_get_tools` tool logic.
+// Implements `lightmcp_get_tools` + dynamic tool registration.
+// Selected tools are registered on the McpServer so the agent
+// can call them through LightMCP (forwarded transparently).
 // ============================================================
 import { z } from "zod";
 import { getCatalogTools } from "../catalog/loader.js";
@@ -8,6 +10,7 @@ import { buildCatalog } from "../catalog/builder.js";
 import { ensureOllamaReady } from "../ollama/manager.js";
 import { selectTools } from "../ollama/client.js";
 import type { ToolEntry } from "../types.js";
+import type { RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 export const GetToolsInputSchema = z.object({
   task: z
@@ -27,28 +30,22 @@ export const GetToolsInputSchema = z.object({
 
 export type GetToolsInput = z.infer<typeof GetToolsInputSchema>;
 
-/** MCP tool definition shape returned to the main agent */
-interface MCPToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  _lightmcp: {
-    serverKey: string;
-    transport: "stdio" | "http";
-  };
+let _registeredTools: RegisteredTool[] = [];
+
+/** Remove all dynamically registered tools from the McpServer. */
+async function unregisterAllTools(): Promise<void> {
+  for (const reg of _registeredTools) {
+    try {
+      reg.remove();
+    } catch {
+      // Already removed or never registered
+    }
+  }
+  _registeredTools = [];
 }
 
-function toolEntryToMCPDef(entry: ToolEntry): MCPToolDefinition {
-  return {
-    name: entry.name,
-    description: entry.description,
-    inputSchema: entry.inputSchema,
-    _lightmcp: {
-      serverKey: entry.serverKey,
-      transport: entry.serverTransport,
-    },
-  };
-}
+/** Loose input schema for proxied tools — accepts any object. */
+const PassthroughSchema = z.object({}).passthrough();
 
 export async function handleGetTools(input: GetToolsInput): Promise<{
   content: { type: "text"; text: string }[];
@@ -82,7 +79,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     };
   }
 
-  // 4. Validate: only return tools that actually exist in the catalog
+  // 4. Validate: only keep tools that exist in the catalog
   const catalogMap = new Map<string, ToolEntry>(
     catalog.map((t) => [t.name, t])
   );
@@ -104,12 +101,56 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     );
   }
 
-  // 5. Return MCP tool definitions as JSON text content
+  // 5. Dynamically register selected tools on the McpServer
+  //    so the agent can call them through LightMCP.
+  try {
+    const { getMcpServer } = await import("./mcp_server.js");
+    const { callTool } = await import("./proxy.js");
+    const mcpServer = getMcpServer();
+
+    // Remove previously registered tools
+    await unregisterAllTools();
+
+    // Register each selected tool with a forward handler
+    for (const entry of validEntries) {
+      const serverKey = entry.serverKey;
+      const toolName = entry.name;
+
+      const registered = mcpServer.registerTool(
+        toolName,
+        {
+          description: entry.description || `Tool from ${serverKey}`,
+          inputSchema: PassthroughSchema,
+          _meta: {
+            serverKey,
+            transport: entry.serverTransport,
+          },
+        },
+        async (args) => {
+          return callTool(serverKey, toolName, args as Record<string, unknown> | undefined);
+        }
+      );
+      _registeredTools.push(registered);
+    }
+
+    if (validEntries.length > 0) {
+      console.log(`  [REG] Registered ${validEntries.length} tool(s) for agent use`);
+    }
+  } catch (err) {
+    console.error("Failed to register tools on McpServer:", err);
+  }
+
+  // 6. Return summary as text content
   const result = {
     task,
     selected: validEntries.length,
     total: catalog.length,
-    tools: validEntries.map(toolEntryToMCPDef),
+    tools: validEntries.map((t) => ({
+      name: t.name,
+      serverKey: t.serverKey,
+      transport: t.serverTransport,
+      description: t.shortDesc || t.description?.slice(0, 100),
+    })),
   };
 
   console.log(

@@ -3,7 +3,7 @@
 // Handles the full lifecycle of the Ollama process:
 // start on-demand, idle timeout, graceful shutdown.
 // ============================================================
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { loadConfig } from "../config.js";
 
 type OllamaState = "stopped" | "starting" | "ready";
@@ -13,13 +13,26 @@ let _proc: ChildProcess | null = null;
 let _idleTimer: NodeJS.Timeout | null = null;
 let _startPromise: Promise<void> | null = null;
 
+function killProcess(proc: ChildProcess, graceful: boolean): void {
+  if (process.platform === "win32" && proc.pid) {
+    try {
+      const flag = graceful ? "" : " /F";
+      execSync(`taskkill /PID ${proc.pid} /T${flag}`, { stdio: "ignore" });
+    } catch {
+      // Process may have already exited
+    }
+  } else {
+    proc.kill(graceful ? "SIGTERM" : "SIGKILL");
+  }
+}
+
 function resetIdleTimer(idleTimeoutSeconds: number): void {
   if (_idleTimer) clearTimeout(_idleTimer);
-  _idleTimer = setTimeout(async () => {
+  _idleTimer = setTimeout(() => {
     console.log(
       `[INFO] Ollama idle for ${idleTimeoutSeconds}s - shutting down to free VRAM...`
     );
-    await stopOllama();
+    stopOllama().catch((err) => console.error("Ollama stop error:", err));
   }, idleTimeoutSeconds * 1_000);
 }
 
@@ -71,7 +84,7 @@ export async function startOllama(): Promise<void> {
       _proc = spawn("ollama", ["serve"], {
         detached: false,
         stdio: "ignore",
-        shell: false,
+        shell: process.platform === "win32",
         windowsHide: true,
       });
 
@@ -115,11 +128,11 @@ export async function stopOllama(): Promise<void> {
 
   if (_proc && _state !== "stopped") {
     _state = "stopped";
-    _proc.kill("SIGTERM");
-    // Give it 3s to die gracefully
+    killProcess(_proc, true);
+    // Give it 3s to die gracefully, then force kill
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
-        _proc?.kill("SIGKILL");
+        if (_proc) killProcess(_proc, false);
         resolve();
       }, 3_000);
       _proc?.on("exit", () => {
@@ -136,7 +149,12 @@ export async function stopOllama(): Promise<void> {
 /** Ensure Ollama is running and reset its idle timer. Call before every inference. */
 export async function ensureOllamaReady(): Promise<void> {
   const cfg = await loadConfig();
-  await startOllama();
+  try {
+    await startOllama();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to start Ollama: ${msg}`, { cause: err });
+  }
   resetIdleTimer(cfg.ollama.idleTimeoutSeconds);
 }
 
@@ -150,23 +168,31 @@ export async function ensureModelPulled(): Promise<void> {
     const res = await fetch(`${host}/api/tags`);
     const data = (await res.json()) as { models?: { name: string }[] };
     const models = data.models ?? [];
-    const present = models.some(
-      (m) => m.name === model || m.name.startsWith(model.split(":")[0])
-    );
 
-    if (present) {
+    // Exact match preferred; warn on partial match
+    const exact = models.some((m) => m.name === model);
+    if (exact) {
       console.log(`[OK] Model ${model} already present`);
       return;
     }
+
+    const base = model.split(":")[0];
+    const partial = models.find((m) => m.name.startsWith(base));
+    if (partial) {
+      console.warn(
+        `[WARN] Exact model "${model}" not found, but similar "${partial.name}" exists. Consider pulling the correct model.`
+      );
+      return;
+    }
   } catch {
-    // Ollama not running — can't check, will pull on first run
-    return;
+    // Ollama not running — start it, then try to pull
+    console.log("[INFO] Ollama not running, will start and pull model...");
   }
 
   console.log(`[INFO] Pulling model: ${model} (this may take a while)...`);
   const proc = spawn("ollama", ["pull", model], {
     stdio: "inherit",
-    shell: false,
+    shell: process.platform === "win32",
   });
   await new Promise<void>((resolve, reject) => {
     proc.on("close", (code) => {

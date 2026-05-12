@@ -51,12 +51,13 @@ export async function selectTools(
     format: {
       type: "object",
       properties: {
+        reasoning: { type: "string" },
         tools: {
           type: "array",
           items: { type: "string" }
         }
       },
-      required: ["tools"]
+      required: ["reasoning", "tools"]
     },
     messages: [
       { role: "system", content: systemPrompt },
@@ -85,6 +86,9 @@ export async function selectTools(
 
       const data = (await res.json()) as OllamaChatResponse;
       const raw = data.message?.content ?? "[]";
+      if (process.env.LIGHTMCP_VERBOSE) {
+        console.log("\n[DEBUG] Raw model output:", raw, "\n");
+      }
 
       // Parse and validate
       let parsed: unknown;

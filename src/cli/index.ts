@@ -9,9 +9,20 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Load .env if present
+import { config as dotenvConfig } from "dotenv";
+dotenvConfig();
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, "../../package.json");
-const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as { version: string };
+
+let version = "0.1.0";
+try {
+  const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as { version: string };
+  version = pkg.version;
+} catch {
+  console.warn("[WARN] Could not read package.json, using fallback version.");
+}
 
 const program = new Command();
 
@@ -21,7 +32,7 @@ program
     "LightMCP — semantic MCP tool router powered by a local LLM.\n" +
     "Bypass the 100-tool limit and reduce context usage in Antigravity."
   )
-  .version(pkg.version);
+  .version(version);
 
 // ── lightmcp start ───────────────────────────────────────────
 program
@@ -98,7 +109,7 @@ program
   .description("Test tool routing locally without starting the MCP server")
   .option("--hints <hints>", "Comma-separated hints", "")
   .action(async (task: string, opts: { hints: string }) => {
-    const { getCatalogTools, loadCatalog } = await import("../catalog/loader.js");
+    const { getCatalogTools } = await import("../catalog/loader.js");
     const { buildCatalog } = await import("../catalog/builder.js");
     const { ensureOllamaReady, stopOllama } = await import("../ollama/manager.js");
     const { selectTools } = await import("../ollama/client.js");

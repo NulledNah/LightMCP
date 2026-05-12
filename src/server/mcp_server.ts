@@ -1,77 +1,114 @@
 // ============================================================
 // LightMCP — MCP Router Server
-// Exposes a single MCP tool: lightmcp_get_tools
+// Singleton McpServer with dynamic tool registration.
+// Agents connect here; LightMCP forwards tool calls to
+// the real downstream MCP servers.
 // ============================================================
 import express from "express";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config.js";
 import {
   handleGetTools,
   GetToolsInputSchema,
 } from "./handlers.js";
 
-export async function createMcpServer(): Promise<express.Application> {
-  const cfg = await loadConfig();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-  const mcpServer = new McpServer({
-    name: "lightmcp",
-    version: "0.1.0",
+let _version: string | null = null;
+let _mcpServer: McpServer | null = null;
+let _transport: StreamableHTTPServerTransport | null = null;
+
+async function getVersion(): Promise<string> {
+  if (_version) return _version;
+  try {
+    const pkgPath = path.resolve(__dirname, "../../package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as { version: string };
+    _version = pkg.version;
+  } catch {
+    _version = "0.1.0";
+  }
+  return _version;
+}
+
+/** Shared McpServer instance — call after createMcpServer() */
+export function getMcpServer(): McpServer {
+  if (!_mcpServer) throw new Error("McpServer not initialized — call createMcpServer() first");
+  return _mcpServer;
+}
+
+export async function createMcpServer(): Promise<express.Application> {
+  await loadConfig(); // ensure config is valid
+  const version = await getVersion();
+
+  const app = express();
+  app.use(express.json({ limit: "4mb" }));
+
+  // ── Health check ──────────────────────────────────────────
+  app.get("/health", (_req, res) => {
+    res.json({
+      status: "ok",
+      service: "lightmcp",
+      version,
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  // Register the single routing tool
-  mcpServer.registerTool(
+  // ── Singleton MCP transport (stateful, session-aware) ─────
+  _transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+
+  _mcpServer = new McpServer({ name: "lightmcp", version });
+
+  // Permanent tool: the semantic selector
+  _mcpServer.registerTool(
     "lightmcp_get_tools",
     {
       description:
-        "Selects and returns the minimum set of MCP tool definitions needed for a given task. " +
-        "Call this tool BEFORE attempting a task to discover which tools are available. " +
-        "Returns full MCP tool schemas you can use immediately.",
+        "Ask LightMCP which tools are relevant for a given task. " +
+        "Returns the best matching MCP tools from all connected servers. " +
+        "Use this before calling any other tool to discover what's available.",
       inputSchema: GetToolsInputSchema,
     },
     handleGetTools
   );
 
-  // Express app with MCP transport
-  const app = express();
-  app.use(express.json({ limit: "4mb" }));
+  // Connect transport ONCE
+  await _mcpServer.connect(_transport);
 
-  // Health check endpoint
-  app.get("/health", (_req, res) => {
-    res.json({
-      status: "ok",
-      service: "lightmcp",
-      version: "0.1.0",
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  // MCP endpoint — stateless, one transport per request
+  // ── MCP endpoints — pass through to the singleton transport ─
   app.post("/mcp", async (req, res) => {
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined, // stateless mode
-      });
-      await mcpServer.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await _transport!.handleRequest(req, res, req.body);
     } catch (err) {
-      console.error("MCP request error:", err);
+      console.error("MCP POST error:", err);
       if (!res.headersSent) {
         res.status(500).json({ error: "Internal server error" });
       }
     }
   });
 
-  // MCP GET (for SSE clients)
   app.get("/mcp", async (req, res) => {
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-      });
-      await mcpServer.connect(transport);
-      await transport.handleRequest(req, res);
+      await _transport!.handleRequest(req, res);
     } catch (err) {
-      console.error("MCP SSE error:", err);
+      console.error("MCP GET error:", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
+  app.delete("/mcp", async (req, res) => {
+    try {
+      await _transport!.handleRequest(req, res);
+    } catch (err) {
+      console.error("MCP DELETE error:", err);
       if (!res.headersSent) {
         res.status(500).json({ error: "Internal server error" });
       }
@@ -89,12 +126,8 @@ export async function startServer(): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     const httpServer = app.listen(port, host, () => {
-      console.log(
-        `\n[INFO] LightMCP Router running at http://${host}:${port}/mcp`
-      );
-      console.log(
-        `   Health: http://${host}:${port}/health\n`
-      );
+      console.log(`\n[INFO] LightMCP Router running at http://${host}:${port}/mcp`);
+      console.log(`   Health: http://${host}:${port}/health\n`);
       resolve();
     });
     httpServer.on("error", reject);
@@ -104,7 +137,9 @@ export async function startServer(): Promise<void> {
       console.log(`\n${signal} received — shutting down…`);
       const { stopOllama } = await import("../ollama/manager.js");
       const { stopCatalogWatcher } = await import("../catalog/watcher.js");
-      await Promise.all([stopOllama(), stopCatalogWatcher()]);
+      const { closeServerPool } = await import("./proxy.js");
+      await Promise.all([stopOllama(), stopCatalogWatcher(), closeServerPool()]);
+      if (_transport) await _transport.close();
       httpServer.close(() => {
         console.log("[INFO] LightMCP stopped");
         process.exit(0);

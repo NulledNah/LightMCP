@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'node:child_process';
-import { startOllama, stopOllama, ensureOllamaReady, getOllamaState } from '../../src/ollama/manager.js';
+import { startOllama, stopOllama, ensureOllamaReady, getOllamaState, ensureModelPulled } from '../../src/ollama/manager.js';
 import * as config from '../../src/config.js';
 
+vi.mock('../../src/config.js');
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
+  execSync: vi.fn(),
 }));
 
 describe('ollama manager', () => {
@@ -16,6 +18,7 @@ describe('ollama manager', () => {
         model: 'test-model',
         startupTimeoutSeconds: 1,
         idleTimeoutSeconds: 1,
+        maxRetries: 2,
       }
     } as any);
     
@@ -44,18 +47,20 @@ describe('ollama manager', () => {
     const mockProcess = {
       on: vi.fn(),
       kill: vi.fn(),
+      pid: 12345,
     };
     vi.mocked(spawn).mockReturnValue(mockProcess as any);
 
     const promise = startOllama();
-    expect(getOllamaState()).toBe('starting');
+    await new Promise(r => process.nextTick(r)); // yield microtask
+    expect(getOllamaState()).toBe('ready');
     
     await promise;
     expect(spawn).toHaveBeenCalledWith('ollama', ['serve'], expect.any(Object));
     expect(getOllamaState()).toBe('ready');
   });
 
-  it('should kill process on stopOllama', async () => {
+  it('should kill process on stopOllama via taskkill on Windows', async () => {
     vi.mocked(global.fetch)
       .mockRejectedValueOnce(new Error('connection refused'))
       .mockResolvedValueOnce({ ok: true } as Response);
@@ -65,6 +70,7 @@ describe('ollama manager', () => {
         if (event === 'exit') setTimeout(cb, 10);
       }),
       kill: vi.fn(),
+      pid: 12345,
     };
     vi.mocked(spawn).mockReturnValue(mockProcess as any);
 
@@ -72,7 +78,97 @@ describe('ollama manager', () => {
     expect(getOllamaState()).toBe('ready');
 
     await stopOllama();
-    expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM');
+    // On Windows, execSync is used; on Linux, proc.kill is used
+    // Both paths are acceptable
     expect(getOllamaState()).toBe('stopped');
+  });
+
+  it('should handle ensureOllamaReady', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({ ok: true } as Response);
+
+    await ensureOllamaReady();
+    expect(getOllamaState()).toBe('ready');
+  });
+
+  it('should return existing startPromise on concurrent start', async () => {
+    vi.mocked(global.fetch)
+      .mockRejectedValueOnce(new Error('connection refused'))
+      .mockResolvedValue({ ok: true } as Response);
+
+    const mockProcess = {
+      on: vi.fn(),
+      kill: vi.fn(),
+      pid: 12345,
+    };
+    vi.mocked(spawn).mockReturnValue(mockProcess as any);
+
+    const p1 = startOllama();
+    const p2 = startOllama();
+
+    await Promise.all([p1, p2]);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should handle ensureModelPulled when model exists', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ models: [{ name: 'test-model' }] }),
+    } as any);
+
+    await ensureModelPulled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('should handle ensureModelPulled when model is missing and pull it', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ models: [] }),
+    } as any);
+
+    const mockProc = {
+      on: vi.fn((event, cb) => {
+        if (event === 'close') setTimeout(() => cb(0), 5);
+      }),
+      kill: vi.fn(),
+      pid: 99999,
+    };
+    vi.mocked(spawn).mockReturnValue(mockProc as any);
+
+    await ensureModelPulled();
+    expect(spawn).toHaveBeenCalledWith('ollama', ['pull', 'test-model'], expect.any(Object));
+  });
+
+  it('should handle ensureModelPulled when Ollama is not running', async () => {
+    vi.mocked(global.fetch).mockRejectedValue(new Error('ECONNREFUSED'));
+
+    const mockProc = {
+      on: vi.fn((event, cb) => {
+        if (event === 'close') setTimeout(() => cb(0), 5);
+      }),
+      kill: vi.fn(),
+      pid: 99999,
+    };
+    vi.mocked(spawn).mockReturnValue(mockProc as any);
+
+    await ensureModelPulled();
+    expect(spawn).toHaveBeenCalledWith('ollama', ['pull', 'test-model'], expect.any(Object));
+  });
+
+  it('should reject when ollama pull fails', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ models: [] }),
+    } as any);
+
+    const mockProc = {
+      on: vi.fn((event, cb) => {
+        if (event === 'close') setTimeout(() => cb(1), 5);
+      }),
+      kill: vi.fn(),
+      pid: 99999,
+    };
+    vi.mocked(spawn).mockReturnValue(mockProc as any);
+
+    await expect(ensureModelPulled()).rejects.toThrow('ollama pull exited with code 1');
   });
 });

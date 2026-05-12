@@ -2,7 +2,7 @@
 // LightMCP — Tool Catalog Builder
 // Connects to each MCP server and collects tool definitions.
 // ============================================================
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadMcpConfig, resolveMcpConfigPath, loadConfig } from "../config.js";
@@ -12,6 +12,18 @@ import type {
   ToolEntry,
   CatalogServer,
 } from "../types.js";
+
+function killProcess(proc: ChildProcess): void {
+  if (process.platform === "win32" && proc.pid) {
+    try {
+      execSync(`taskkill /PID ${proc.pid} /T /F`, { stdio: "ignore" });
+    } catch {
+      // Process may have already exited
+    }
+  } else {
+    proc.kill();
+  }
+}
 
 // ── MCP JSON-RPC helpers ─────────────────────────────────────
 
@@ -46,7 +58,7 @@ async function queryToolsViaStdio(
   const args = cfg.args ?? [];
   const env = { ...process.env, ...(cfg.env ?? {}) };
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve, _reject) => {
     const proc: ChildProcess = spawn(command, args, {
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -61,7 +73,7 @@ async function queryToolsViaStdio(
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        proc.kill();
+        killProcess(proc);
         // Timeout is not fatal — return empty
         console.warn(`  [warn] ${serverKey}: stdio timeout, skipping`);
         resolve([]);
@@ -93,7 +105,7 @@ async function queryToolsViaStdio(
               if (!resolved) {
                 resolved = true;
                 clearTimeout(timer);
-                proc.kill();
+                killProcess(proc);
                 resolve(allTools);
               }
             }
@@ -288,7 +300,13 @@ export async function buildCatalog(opts: {
 
     let added = 0;
 
+    const disabledSet = new Set(serverCfg.disabledTools ?? []);
+
     for (const t of rawTools) {
+      if (disabledSet.has(t.name)) {
+        console.log(`     [SKIP] ${t.name} (disabled per config)`);
+        continue;
+      }
 
       tools.push({
         name: t.name,

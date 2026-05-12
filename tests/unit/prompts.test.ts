@@ -3,37 +3,74 @@ import { buildToolSelectionPrompt } from '../../src/prompts/tool_selector.js';
 import type { ToolEntry } from '../../src/types.js';
 
 describe('tool_selector.ts', () => {
+  const mockCatalog: ToolEntry[] = [
+    {
+      name: "create_footprint",
+      serverKey: "kicad",
+      serverTransport: "stdio",
+      description: "Creates a PCB footprint",
+      inputSchema: { type: "object", properties: {} },
+      shortDesc: "Creates a footprint",
+    },
+    {
+      name: "get_sketch",
+      serverKey: "fusion",
+      serverTransport: "http",
+      description: "Gets a Fusion 360 sketch",
+      inputSchema: { type: "object", properties: {} },
+      shortDesc: "Gets a sketch",
+    },
+  ];
+
   it('should build correct system and user prompts', () => {
     const task = "Create a new PCB footprint";
-    const catalog: ToolEntry[] = [
-      {
-        serverKey: "kicad",
-        name: "create_footprint",
-        shortDesc: "Creates a footprint",
-        schema: { name: "create_footprint", description: "Creates a footprint", inputSchema: { type: "object", properties: {} } }
-      },
-      {
-        serverKey: "fusion",
-        name: "get_sketch",
-        shortDesc: "Gets a sketch",
-        schema: { name: "get_sketch", description: "Gets a sketch", inputSchema: { type: "object", properties: {} } }
-      }
-    ];
 
-    const { systemPrompt, userPrompt } = buildToolSelectionPrompt(task, catalog);
+    const { systemPrompt, userPrompt } = buildToolSelectionPrompt(task, mockCatalog);
 
-    expect(systemPrompt).toContain('You are a strict JSON-only API');
-    expect(systemPrompt).toContain('Respond with ONLY a valid JSON object');
-    
-    expect(userPrompt).toContain('TASK: Create a new PCB footprint');
-    expect(userPrompt).toContain('- "create_footprint" (kicad): Creates a footprint');
-    expect(userPrompt).toContain('- "get_sketch" (fusion): Gets a sketch');
+    expect(systemPrompt).toContain('You are an elite, highly aggressive semantic tool router API');
+    expect(systemPrompt).toContain('CRITICAL RULES');
+    expect(systemPrompt).toContain('AVAILABLE TOOLS');
+
+    expect(userPrompt).toContain('AVAILABLE TOOLS');
+    expect(userPrompt).toContain('USER TASK TO ACCOMPLISH:');
+    expect(userPrompt).toContain('"Create a new PCB footprint"');
+    expect(userPrompt).toContain('"create_footprint" (Server: kicad): Creates a footprint');
+    expect(userPrompt).toContain('"get_sketch" (Server: fusion): Gets a sketch');
   });
 
   it('should include hints if provided', () => {
     const task = "Fix error";
-    const { userPrompt } = buildToolSelectionPrompt(task, [], ["Remember to check DRC", "Use mm"]);
-    
-    expect(userPrompt).toContain('Additional context: Remember to check DRC, Use mm');
+    const hints = ["Remember to check DRC", "Use mm"];
+
+    const { userPrompt } = buildToolSelectionPrompt(task, [], hints);
+
+    expect(userPrompt).toContain('Additional Context / Hints: Remember to check DRC, Use mm');
+    expect(userPrompt).toContain('USER TASK TO ACCOMPLISH:');
+    expect(userPrompt).toContain('"Fix error"');
+  });
+
+  it('should handle empty catalog', () => {
+    const task = "Some task";
+    const { systemPrompt, userPrompt } = buildToolSelectionPrompt(task, []);
+
+    expect(systemPrompt).toContain('You are an elite, highly aggressive semantic tool router API');
+    expect(userPrompt).toContain('AVAILABLE TOOLS');
+    expect(userPrompt).toContain('"Some task"');
+  });
+
+  it('should handle multiple hints correctly', () => {
+    const task = "Do something";
+    const hints = ["hint1", "hint2", "hint3"];
+
+    const { userPrompt } = buildToolSelectionPrompt(task, [], hints);
+
+    expect(userPrompt).toContain('Additional Context / Hints: hint1, hint2, hint3');
+  });
+
+  it('should not include hints section when hints empty', () => {
+    const task = "Simple task";
+    const { userPrompt } = buildToolSelectionPrompt(task, []);
+
+    expect(userPrompt).not.toContain('Additional Context / Hints');
   });
 });

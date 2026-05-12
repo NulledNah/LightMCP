@@ -5,8 +5,29 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 import { loadConfig } from "../config.js";
 import type { ToolCatalog, ToolEntry } from "../types.js";
+
+const ToolCatalogSchema = z.object({
+  version: z.literal(1),
+  builtAt: z.string(),
+  activeOnly: z.boolean(),
+  servers: z.array(z.object({
+    key: z.string(),
+    transport: z.enum(["stdio", "http"]),
+    disabled: z.boolean(),
+    toolCount: z.number().int().min(0),
+  })),
+  tools: z.array(z.object({
+    name: z.string(),
+    serverKey: z.string(),
+    serverTransport: z.enum(["stdio", "http"]),
+    description: z.string(),
+    inputSchema: z.record(z.unknown()),
+    shortDesc: z.string(),
+  })),
+});
 
 let _catalog: ToolCatalog | null = null;
 
@@ -23,7 +44,22 @@ export async function loadCatalog(): Promise<ToolCatalog | null> {
   if (!existsSync(outPath)) return null;
 
   const raw = await readFile(outPath, "utf-8");
-  _catalog = JSON.parse(raw) as ToolCatalog;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.error(`[ERROR] Failed to parse ${outPath}: invalid JSON`);
+    return null;
+  }
+  const result = ToolCatalogSchema.safeParse(parsed);
+  if (!result.success) {
+    console.error(
+      `[ERROR] Invalid catalog schema in ${outPath}:`,
+      result.error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")
+    );
+    return null;
+  }
+  _catalog = result.data as ToolCatalog;
   return _catalog;
 }
 
