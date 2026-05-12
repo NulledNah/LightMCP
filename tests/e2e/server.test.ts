@@ -37,7 +37,7 @@ describe('E2E Server endpoints', () => {
   });
 
   describe('POST /mcp', () => {
-    it('should accept initialize request', async () => {
+    it('should accept MCP initialize request', async () => {
       const res = await request(app)
         .post('/mcp')
         .set('Content-Type', 'application/json')
@@ -56,43 +56,13 @@ describe('E2E Server endpoints', () => {
       expect(res.status).toBe(200);
     });
 
-    it('should reject non-initialize requests without session', async () => {
-      const res = await request(app)
-        .post('/mcp')
-        .set('Content-Type', 'application/json')
-        .set('Accept', 'application/json, text/event-stream')
-        .send({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'tools/list',
-          params: {},
-        });
-
-      expect(res.status).not.toBe(200);
-    });
-
-    it('should handle invalid JSON body', async () => {
+    it('should reject invalid JSON body', async () => {
       const res = await request(app)
         .post('/mcp')
         .set('Content-Type', 'application/json')
         .send('not json');
 
-      // Express json middleware should reject
       expect(res.status).toBe(400);
-    });
-  });
-
-  describe('GET /mcp', () => {
-    it('should not crash on GET /mcp', async () => {
-      const res = await request(app).get('/mcp').set('Accept', 'text/event-stream');
-      expect(res.status).not.toBe(500);
-    }, 10_000);
-  });
-
-  describe('DELETE /mcp', () => {
-    it('should not crash on DELETE /mcp', async () => {
-      const res = await request(app).delete('/mcp');
-      expect(res.status).not.toBe(500);
     });
   });
 

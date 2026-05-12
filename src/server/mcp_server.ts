@@ -5,7 +5,6 @@
 // the real downstream MCP servers.
 // ============================================================
 import express from "express";
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { readFile } from "node:fs/promises";
@@ -58,9 +57,9 @@ export async function createMcpServer(): Promise<express.Application> {
     });
   });
 
-  // ── Singleton MCP transport (stateful, session-aware) ─────
+  // ── Singleton MCP transport (stateless — compatible with all agents) ──
   _transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
+    sessionIdGenerator: undefined,
   });
 
   _mcpServer = new McpServer({ name: "lightmcp", version });
