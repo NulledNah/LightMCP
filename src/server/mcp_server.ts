@@ -83,17 +83,18 @@ export async function createMcpServer(): Promise<express.Application> {
 
   // Permanent tool: the semantic selector — the ONLY tool at startup
   _mcpServer.registerTool(
-    "lightmcp_get_tools",
+    "get_task_tools",
     {
       description:
-        "Ask LightMCP which tools are relevant for a given task. " +
-        "ALWAYS call this first before any task to discover available tools. " +
-        "Returns the best matching MCP tools from all connected servers.",
+        "Call this before any task to discover which tools are available. " +
+        "Provide a description of what you need to accomplish and receive " +
+        "the exact set of tools relevant to your task. The returned tools " +
+        "become immediately callable. Use this as the first step in every task.",
       inputSchema: GetToolsInputSchema,
     },
     handleGetTools
   );
-  trackTool("lightmcp_get_tools", "Ask LightMCP which tools are relevant for your task.");
+  trackTool("get_task_tools", "Discover the exact tools relevant to your task.");
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
@@ -120,8 +121,8 @@ export async function createMcpServer(): Promise<express.Application> {
         return;
       }
 
-      // Compatibility: handle tools/call for lightmcp_get_tools directly
-      if (method === "tools/call" && body?.params?.name === "lightmcp_get_tools") {
+      // Compatibility: handle tools/call for get_task_tools directly
+      if (method === "tools/call" && body?.params?.name === "get_task_tools") {
         const args = body.params.arguments ?? {};
         const result = await handleGetTools(args as Parameters<typeof handleGetTools>[0]);
         res.json({ jsonrpc: "2.0", id: body.id, result });

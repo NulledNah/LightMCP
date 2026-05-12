@@ -1,6 +1,6 @@
 // ============================================================
 // LightMCP — MCP Server Handler
-// Implements `lightmcp_get_tools` + dynamic tool registration.
+// Implements `get_task_tools` + dynamic tool registration.
 // Selected tools are registered on the McpServer so the agent
 // can call them through LightMCP (forwarded transparently).
 // ============================================================

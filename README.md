@@ -14,7 +14,7 @@ MCP-compatible agents (like Antigravity) have a hard limit of **100 tools** acro
 
 ## The Solution
 
-LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`lightmcp_get_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them — LightMCP transparently forwards each call to the real downstream MCP server.
+LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`get_task_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them — LightMCP transparently forwards each call to the real downstream MCP server.
 
 ```
 Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, ...]
