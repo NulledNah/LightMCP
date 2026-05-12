@@ -145,6 +145,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
       serverKey: t.serverKey,
       transport: t.serverTransport,
       description: t.shortDesc || t.description?.slice(0, 100),
+      inputSchema: t.inputSchema,
     })),
   };
 
