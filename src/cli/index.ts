@@ -189,18 +189,38 @@ program
 program
   .command("call <tool>")
   .description("Call a tool through LightMCP (forwards to the real MCP server)")
-  .argument("[json_args]", "JSON arguments for the tool")
-  .action(async (tool: string, jsonArgs?: string) => {
+  .argument("[json_or_key=value...]", "JSON arguments or key=value pairs for the tool")
+  .allowUnknownOption()
+  .action(async (tool: string, rawArgs: string[]) => {
     const { loadConfig } = await import("../config.js");
     const cfg = await loadConfig();
     const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
 
     let toolArgs: Record<string, unknown> = {};
-    if (jsonArgs) {
+
+    if (rawArgs.length === 1) {
+      // Try parse as JSON, fallback to { input: text }
       try {
-        toolArgs = JSON.parse(jsonArgs);
+        toolArgs = JSON.parse(rawArgs[0]);
       } catch {
-        toolArgs = { input: jsonArgs };
+        toolArgs = { input: rawArgs[0] };
+      }
+    } else if (rawArgs.length > 1) {
+      // Parse as key=value or --key value pairs
+      for (let i = 0; i < rawArgs.length; i++) {
+        let key = rawArgs[i].replace(/^--?/, ""); // Remove leading -- or -
+        const eqIdx = key.indexOf("=");
+        if (eqIdx >= 0) {
+          const val = key.slice(eqIdx + 1);
+          key = key.slice(0, eqIdx);
+          toolArgs[key] = val;
+        } else {
+          const next = rawArgs[i + 1];
+          if (next && !next.startsWith("-")) {
+            toolArgs[key] = next;
+            i++;
+          }
+        }
       }
     }
 
