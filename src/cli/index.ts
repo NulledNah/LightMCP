@@ -155,11 +155,12 @@ program
 program
   .command("setup")
   .description(
-    "Install Ollama, pull the model, and register Windows startup task"
+    "Install Ollama, pull the model, build catalog, and configure AI agents"
   )
   .action(async () => {
     const { execSync } = await import("node:child_process");
-    const os = await import("node:os");
+    const { createInterface } = await import("node:readline");
+    const osMod = await import("node:os");
 
     console.log("\n[INFO] LightMCP Setup\n");
 
@@ -174,7 +175,7 @@ program
     }
 
     if (!ollamaInstalled) {
-      if (os.default.platform() === "win32") {
+      if (osMod.default.platform() === "win32") {
         const scriptPath = path.resolve(__dirname, "../../scripts/setup.ps1");
         if (existsSync(scriptPath)) {
           console.log(
@@ -210,8 +211,55 @@ program
     const { buildCatalog } = await import("../catalog/builder.js");
     await buildCatalog();
 
-    // 4. Register Windows Task Scheduler
-    if (os.default.platform() === "win32") {
+    // 4. Scan for AI agents and configure
+    console.log("\n[INFO] Scanning for AI agents...");
+    const { detectAgents, configureAllAgents, generateManualInstructions } =
+      await import("../setup/scanner.js");
+
+    const agents = detectAgents();
+
+    if (agents.length === 0) {
+      console.log("  No compatible AI agents detected on this system.");
+    } else {
+      console.log(`\n  Detected ${agents.length} agent(s):`);
+      for (const a of agents) {
+        const status = a.hasLightMCP ? " (LightMCP already configured)" : "";
+        console.log(`    • ${a.name} — ${a.currentServerCount} MCP server(s)${status}`);
+      }
+
+      console.log("\n  How should LightMCP configure these agents?\n");
+      console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP");
+      console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
+      console.log("  [3] Manual  — skip auto-config, show manual instructions");
+      console.log("");
+
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const choice = await new Promise<string>((resolve) => {
+        rl.question("  Choose [1/2/3]: ", (answer) => {
+          rl.close();
+          resolve(answer.trim());
+        });
+      });
+
+      if (choice === "1" || choice === "2" || choice === "3") {
+        const modes = ["isolate", "add", "manual"] as const;
+        const mode = modes[parseInt(choice) - 1];
+
+        console.log("");
+        const results = configureAllAgents(mode, agents);
+        for (const r of results) console.log(`  ${r}`);
+
+        if (choice === "3") {
+          console.log(generateManualInstructions(agents));
+        }
+      } else {
+        console.log("  Invalid choice — skipping agent configuration.");
+        console.log("  Run 'lightmcp configure' later to set it up.");
+      }
+    }
+
+    // 5. Register Windows Task Scheduler
+    if (osMod.default.platform() === "win32") {
       const scriptPath = path.resolve(__dirname, "../../scripts/setup.ps1");
       if (existsSync(scriptPath)) {
         console.log("\n[INFO] Registering Windows startup task...");
@@ -231,9 +279,61 @@ program
     }
 
     console.log("\n[OK] LightMCP setup complete!");
-    console.log("  Add to your mcp_config.json:");
-    console.log(`    "lightmcp": { "serverUrl": "http://127.0.0.1:${cfg.server.port}/mcp" }`);
-    console.log("\n  Then run: lightmcp start\n");
+    console.log("  Then run: lightmcp start\n");
+  });
+
+// ── lightmcp configure ─────────────────────────────────────
+program
+  .command("configure")
+  .description("Re-run AI agent MCP configuration (scan, isolate/add/manual)")
+  .action(async () => {
+    const { createInterface } = await import("node:readline");
+    const { detectAgents, configureAllAgents, generateManualInstructions } =
+      await import("../setup/scanner.js");
+
+    console.log("\n[INFO] Scanning for AI agents...\n");
+    const agents = detectAgents();
+
+    if (agents.length === 0) {
+      console.log("  No compatible AI agents detected on this system.");
+      return;
+    }
+
+    console.log(`  Detected ${agents.length} agent(s):`);
+    for (const a of agents) {
+      const status = a.hasLightMCP ? " (LightMCP already configured)" : "";
+      console.log(`    • ${a.name} — ${a.currentServerCount} MCP server(s)${status}`);
+    }
+
+    console.log("\n  How should LightMCP configure these agents?\n");
+    console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP");
+    console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
+    console.log("  [3] Manual  — skip auto-config, show manual instructions");
+    console.log("");
+
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const choice = await new Promise<string>((resolve) => {
+      rl.question("  Choose [1/2/3]: ", (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+
+    if (choice === "1" || choice === "2" || choice === "3") {
+      const modes = ["isolate", "add", "manual"] as const;
+      const mode = modes[parseInt(choice) - 1];
+
+      console.log("");
+      const results = configureAllAgents(mode, agents);
+      for (const r of results) console.log(`  ${r}`);
+
+      if (choice === "3") {
+        console.log(generateManualInstructions(agents));
+      }
+    } else {
+      console.log("  Invalid choice — no changes made.");
+    }
+    console.log("");
   });
 
 program.parse(process.argv);

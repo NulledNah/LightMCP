@@ -152,7 +152,8 @@ flowchart TB
 | `lightmcp build-catalog --active-only` | Only include tools from enabled servers |
 | `lightmcp status` | Show status of server, Ollama, and catalog |
 | `lightmcp test "<task>"` | Test tool routing locally |
-| `lightmcp setup` | Full setup: Ollama + model + catalog + Windows startup |
+| `lightmcp setup` | Full setup: Ollama + model + catalog + agent config + Windows startup |
+| `lightmcp configure` | Re-run AI agent MCP configuration (scan, isolate/add/manual) |
 
 ---
 
@@ -195,6 +196,29 @@ Edit `lightmcp_config.json` in the project root:
 | `catalog.outputPath` | `tool_catalog.json` | Where to persist the tool catalog |
 | `catalog.watchMcpConfig` | `true` | Auto-rebuild catalog on config changes |
 | `mcpConfigPath` | auto | Override path to the MCP config listing all servers |
+
+---
+
+## Agent Configuration
+
+During `lightmcp setup`, LightMCP scans your system for compatible AI agents (Antigravity, Claude Code, openCode, Cursor) and offers 3 configuration modes:
+
+| Mode | Behavior |
+|------|----------|
+| **Isolate** | Disables all other MCP servers in detected agents, keeping only LightMCP. Best for minimizing context usage. |
+| **Add** | Leaves existing MCP servers untouched, adds LightMCP alongside them. |
+| **Manual** | No changes — prints the exact JSON snippet and config path for each detected agent. |
+
+You can re-run configuration anytime with `lightmcp configure`.
+
+Detected agents and their MCP config paths:
+
+| Agent | Config Path |
+|-------|------------|
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` |
+| Claude Code | `~/.claude.json` |
+| openCode CLI | `~/.opencode.json` |
+| Cursor | `~/.cursor/mcp.json` |
 
 ---
 
