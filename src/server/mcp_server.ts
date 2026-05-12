@@ -110,6 +110,20 @@ export async function createMcpServer(): Promise<express.Application> {
       const body = req.body;
       const method = body?.method;
 
+      // Compatibility: handle initialize with clean JSON (not SSE)
+      if (method === "initialize") {
+        res.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            protocolVersion: "2025-03-26",
+            capabilities: { tools: {} },
+            serverInfo: { name: "lightmcp", version },
+          },
+        });
+        return;
+      }
+
       // Compatibility: handle tools/list without full MCP handshake
       if (method === "tools/list") {
         const tools = _toolNames.map(t => ({
