@@ -5,6 +5,7 @@
 // the real downstream MCP servers.
 // ============================================================
 import express from "express";
+import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { readFile } from "node:fs/promises";
@@ -101,8 +102,10 @@ export async function createMcpServer(): Promise<express.Application> {
       const body = req.body;
       const method = body?.method;
 
-      // Intercept initialize: return clean JSON, not SSE
+      // Intercept initialize: return clean JSON with session
       if (method === "initialize") {
+        const sessionId = randomUUID();
+        res.setHeader("Mcp-Session-Id", sessionId);
         res.json({
           jsonrpc: "2.0",
           id: body.id,
