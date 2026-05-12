@@ -185,6 +185,60 @@ program
     }
   });
 
+// ── lightmcp call ──────────────────────────────────────────
+program
+  .command("call <tool>")
+  .description("Call a tool through LightMCP (forwards to the real MCP server)")
+  .argument("[json_args]", "JSON arguments for the tool")
+  .action(async (tool: string, jsonArgs?: string) => {
+    const { loadConfig } = await import("../config.js");
+    const cfg = await loadConfig();
+    const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
+
+    let toolArgs: Record<string, unknown> = {};
+    if (jsonArgs) {
+      try {
+        toolArgs = JSON.parse(jsonArgs);
+      } catch {
+        toolArgs = { input: jsonArgs };
+      }
+    }
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: tool, arguments: toolArgs },
+      }),
+    });
+
+    const data = (await res.json()) as {
+      error?: { code: number; message: string };
+      result?: { content?: { type: string; text: string }[] };
+    };
+    if (data.error) {
+      console.error(JSON.stringify(data.error));
+      process.exit(1);
+    }
+
+    const content = data.result?.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === "text") {
+          process.stdout.write(block.text + "\n");
+        }
+      }
+    } else {
+      process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
+    }
+  });
+
 // ── lightmcp setup ───────────────────────────────────────────
 program
   .command("setup")
