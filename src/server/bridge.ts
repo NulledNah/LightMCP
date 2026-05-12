@@ -127,8 +127,18 @@ rl.on("line", async (line) => {
 
   try {
     const parsed = JSON.parse(trimmed);
+    const isInitialize = parsed.method === "initialize";
     const response = await forwardToServer(trimmed);
-    process.stdout.write(JSON.stringify(JSON.parse(response)) + "\n");
+    const result = JSON.parse(response);
+    process.stdout.write(JSON.stringify(result) + "\n");
+
+    // After initialize, send initialized notification (MCP protocol requirement)
+    if (isInitialize && !result.error) {
+      await forwardToServer(JSON.stringify({
+        jsonrpc: "2.0",
+        method: "notifications/initialized",
+      }));
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stdout.write(JSON.stringify({
