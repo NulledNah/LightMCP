@@ -11,6 +11,16 @@ import os from "node:os";
 const __agentDir = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE_PATH = path.resolve(__agentDir, "..", "server", "bridge.js");
 
+/** Resolve Antigravity MCP config path (standalone vs VS Code extension install) */
+function resolveAntigravityConfigPath(): string {
+  const standalone = path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json");
+  const vscode = path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
+  // Prefer VS Code path if the directory exists (most common for current Antigravity)
+  if (existsSync(path.dirname(vscode))) return vscode;
+  if (existsSync(path.dirname(standalone))) return standalone;
+  return vscode; // default to VS Code path
+}
+
 // ── Agent definitions ─────────────────────────────────────
 
 interface AgentDef {
@@ -35,8 +45,9 @@ const AGENTS: AgentDef[] = [
     detectPaths: [
       path.join(os.homedir(), ".gemini", "antigravity"),
       path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Antigravity"),
+      path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity"),
     ],
-    configPath: path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json"),
+    configPath: resolveAntigravityConfigPath(),
     mcpServersKey: "mcpServers",
     lightMCPEntry: { command: "node", args: [BRIDGE_PATH] },
     serverEntryStyle: "mcpServers",
