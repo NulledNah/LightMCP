@@ -81,36 +81,64 @@ Then add to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.g
 
 ## Architecture
 
+```mermaid
+sequenceDiagram
+    participant A as AI Agent
+    participant L as LightMCP
+    participant O as Ollama
+    participant D as Downstream MCP
+
+    A->>L: tools/list
+    L-->>A: [lightmcp_get_tools]
+
+    A->>L: tools/call("lightmcp_get_tools", task)
+    L->>O: Select relevant tools
+    O-->>L: [create_footprint, list_libraries]
+    L-->>A: Selected tools summary
+
+    Note over L: Dynamically registers<br/>selected tools
+
+    L-->>A: notifications/tools/list_changed
+    A->>L: tools/list
+    L-->>A: [create_footprint, list_libraries]
+
+    A->>L: tools/call("create_footprint", args)
+    L->>D: Forward call
+    D-->>L: Result
+    L-->>A: Result
 ```
-┌─────────────────────────────────────────────────────┐
-│   AI Agent (Antigravity / openCode / Claude)        │
-│                                                     │
-│  Connects ONLY to LightMCP (1 server in config)     │
-│  1. Calls lightmcp_get_tools(task)                  │
-│  2. LightMCP returns selected tool names            │
-│  3. Selected tools are dynamically registered       │
-│  4. Agent calls tools through LightMCP              │
-└────────────────────┬────────────────────────────────┘
-                     │ MCP Streamable HTTP
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│   LightMCP Router  (localhost:3131)                 │
-│                                                     │
-│  ┌─ lightmcp_get_tools: Ollama semantic selection ─┐│
-│  └─ Dynamic tool registration & forward proxy ─────┘│
-│                                                     │
-│  Connection pool to downstream servers:             │
-│  ┌─ KiCad MCP (stdio)                              │
-│  ├─ Chrome DevTools MCP (HTTP)                     │
-│  └─ ... (all servers from internal config)         │
-└────────────────────┬────────────────────────────────┘
-                     │ Ollama REST
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│   Ollama (localhost:11434)                          │
-│   qwen2.5-coder:7b-instruct                        │
-│   → Starts on demand / Stops after idle timeout     │
-└─────────────────────────────────────────────────────┘
+
+```mermaid
+flowchart TB
+    subgraph Agent["AI Agent"]
+        direction TB
+        A1["Only LightMCP in config"]
+        A2["Calls tools through LightMCP"]
+    end
+
+    subgraph LightMCP["LightMCP (localhost:3131)"]
+        direction TB
+        L1["lightmcp_get_tools<br/>Ollama semantic selection"]
+        L2["Dynamic tool registration<br/>on McpServer singleton"]
+        L3["Proxy pool<br/>forward tools/call"]
+        L4["Tool catalog<br/>auto-built from all servers"]
+    end
+
+    subgraph Ollama["Ollama (localhost:11434)"]
+        O1["qwen2.5-coder:7b-instruct"]
+        O2["Starts on demand<br/>Idle timeout: 120s"]
+    end
+
+    subgraph Downstream["Downstream MCP Servers"]
+        D1["KiCad MCP (stdio)"]
+        D2["Chrome DevTools (HTTP)"]
+        D3["Fusion360 (HTTP)"]
+        D4["..."]
+    end
+
+    Agent <-->|"MCP Streamable HTTP"| LightMCP
+    LightMCP -->|"REST API"| Ollama
+    LightMCP <-->|"MCP client"| Downstream
 ```
 
 ---
