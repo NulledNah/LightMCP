@@ -460,4 +460,60 @@ program
     console.log("");
   });
 
+// ── Default: treat unknown args as "call <tool> [args...]" ─
+// Antigravity may run: lightmcp kicad search_footprints --query "x"
+program.action(async (...args: string[]) => {
+  // Filter out known server key prefix
+  const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
+  let toolIdx = 0;
+  if (args.length > 1 && knownServers.includes(args[0])) {
+    toolIdx = 1;
+  }
+  if (args.length <= toolIdx) return;
+
+  const tool = args[toolIdx];
+  const rawArgs = args.slice(toolIdx + 1);
+
+  const { loadConfig } = await import("../config.js");
+  const cfg = await loadConfig();
+  const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
+
+  let toolArgs: Record<string, unknown> = {};
+  if (rawArgs.length === 1) {
+    try { toolArgs = JSON.parse(rawArgs[0]); } catch { toolArgs = { input: rawArgs[0] }; }
+  } else if (rawArgs.length > 1) {
+    for (let i = 0; i < rawArgs.length; i++) {
+      let key = rawArgs[i].replace(/^--?/, "");
+      const eqIdx = key.indexOf("=");
+      if (eqIdx >= 0) {
+        toolArgs[key.slice(0, eqIdx)] = key.slice(eqIdx + 1).replace(/^['"]|['"]$/g, "");
+      } else {
+        const next = rawArgs[i + 1];
+        if (next && !next.startsWith("-")) { toolArgs[key] = next.replace(/^['"]|['"]$/g, ""); i++; }
+      }
+    }
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: toolArgs } }),
+  });
+
+  const rawBody = await res.text();
+  try {
+    const data = JSON.parse(rawBody) as any;
+    if (data.error) { console.error(JSON.stringify(data.error)); process.exit(1); }
+    const content = data.result?.content;
+    if (Array.isArray(content)) {
+      for (const block of content) { if (block.type === "text") process.stdout.write(block.text + "\n"); }
+    } else {
+      process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
+    }
+  } catch {
+    if (rawBody) process.stdout.write(rawBody + "\n");
+    else console.error(`Tool "${tool}" returned empty response`);
+  }
+});
+
 program.parse(process.argv);
