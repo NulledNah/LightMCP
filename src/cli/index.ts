@@ -151,6 +151,40 @@ program
     }
   });
 
+// ── lightmcp get-tools ─────────────────────────────────────
+program
+  .command("get-tools <task>")
+  .description("Get relevant tools for a task via semantic LLM selection")
+  .option("--hints <hints>", "Comma-separated hints", "")
+  .action(async (task: string, opts: { hints: string }) => {
+    const { getCatalogTools } = await import("../catalog/loader.js");
+    const { buildCatalog } = await import("../catalog/builder.js");
+    const { ensureOllamaReady, stopOllama } = await import("../ollama/manager.js");
+    const { selectTools } = await import("../ollama/client.js");
+
+    let catalog = await getCatalogTools();
+    if (catalog.length === 0) {
+      const built = await buildCatalog();
+      catalog = built.tools;
+    }
+
+    const hints = opts.hints ? opts.hints.split(",").map((h) => h.trim()) : [];
+
+    await ensureOllamaReady();
+
+    try {
+      const selected = await selectTools(task, catalog, hints);
+      const validTools = catalog.filter((t) => selected.includes(t.name));
+
+      // Output: one tool per line in a clean format
+      for (const t of validTools) {
+        console.log(`${t.name} [${t.serverKey}] ${t.shortDesc}`);
+      }
+    } finally {
+      await stopOllama();
+    }
+  });
+
 // ── lightmcp setup ───────────────────────────────────────────
 program
   .command("setup")
