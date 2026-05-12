@@ -152,6 +152,37 @@ export async function createMcpServer(): Promise<express.Application> {
         return;
       }
 
+      // Handle tools/call without session (CLI call command skips initialize)
+      if (method === "tools/call" && !req.headers["mcp-session-id"]) {
+        const toolName = body?.params?.name;
+        const toolArgs = body?.params?.arguments ?? {};
+
+        // get_task_tools: handle directly
+        if (toolName === "get_task_tools") {
+          const result = await handleGetTools(toolArgs as Parameters<typeof handleGetTools>[0]);
+          res.json({ jsonrpc: "2.0", id: body.id, result });
+          return;
+        }
+
+        // Look up dynamically registered tool on McpServer and forward via proxy
+        try {
+          const registered = (_mcpServer as any)._registeredTools as Map<string, any> | undefined;
+          const rt = registered?.get(toolName);
+          if (rt?._meta?.serverKey) {
+            const { callTool } = await import("./proxy.js");
+            const proxyResult = await callTool(rt._meta.serverKey, toolName, toolArgs);
+            res.json({ jsonrpc: "2.0", id: body.id, result: proxyResult });
+            return;
+          }
+        } catch (err) {
+          console.error("Proxy call failed:", err);
+        }
+
+        // Fallback: pass to SDK transport
+        await _transport!.handleRequest(req, res, body);
+        return;
+      }
+
       // All other MCP methods: delegate to SDK transport
       await _transport!.handleRequest(req, res, body);
     } catch (err) {
