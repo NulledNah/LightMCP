@@ -178,8 +178,15 @@ export async function createMcpServer(): Promise<express.Application> {
           console.error("Proxy call failed:", err);
         }
 
-        // Fallback: pass to SDK transport
-        await _transport!.handleRequest(req, res, body);
+        // Tool not found: return clean JSON error
+        res.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          error: {
+            code: -32601,
+            message: `Tool "${toolName}" not found. Call get_task_tools first to discover available tools.`,
+          },
+        });
         return;
       }
 

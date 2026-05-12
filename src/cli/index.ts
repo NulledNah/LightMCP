@@ -191,33 +191,44 @@ program
   .description("Call a tool through LightMCP (forwards to the real MCP server)")
   .argument("[json_or_key=value...]", "JSON arguments or key=value pairs for the tool")
   .allowUnknownOption()
-  .action(async (tool: string, rawArgs: string[]) => {
+  .action(async (firstArg: string, rawArgs: string[]) => {
     const { loadConfig } = await import("../config.js");
     const cfg = await loadConfig();
     const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
 
-    let toolArgs: Record<string, unknown> = {};
+    // Antigravity may prefix with server key: lightmcp call kicad search_footprints --query "x"
+    // Skip the server key if the firstArg looks like a server name, and use the next arg as tool
+    let tool = firstArg;
+    let argsStart = 0;
+    const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
+    if (rawArgs.length > 0 && knownServers.includes(firstArg)) {
+      tool = rawArgs[0];
+      argsStart = 1;
+    }
 
-    if (rawArgs.length === 1) {
+    let toolArgs: Record<string, unknown> = {};
+    const effectiveArgs = rawArgs.slice(argsStart);
+
+    if (effectiveArgs.length === 1) {
       // Try parse as JSON, fallback to { input: text }
       try {
-        toolArgs = JSON.parse(rawArgs[0]);
+        toolArgs = JSON.parse(effectiveArgs[0]);
       } catch {
-        toolArgs = { input: rawArgs[0] };
+        toolArgs = { input: effectiveArgs[0] };
       }
-    } else if (rawArgs.length > 1) {
+    } else if (effectiveArgs.length > 1) {
       // Parse as key=value or --key value pairs
-      for (let i = 0; i < rawArgs.length; i++) {
-        let key = rawArgs[i].replace(/^--?/, ""); // Remove leading -- or -
+      for (let i = 0; i < effectiveArgs.length; i++) {
+        let key = effectiveArgs[i].replace(/^--?/, "");
         const eqIdx = key.indexOf("=");
         if (eqIdx >= 0) {
-          const val = key.slice(eqIdx + 1);
+          const val = key.slice(eqIdx + 1).replace(/^['"]|['"]$/g, ""); // strip quotes
           key = key.slice(0, eqIdx);
           toolArgs[key] = val;
         } else {
-          const next = rawArgs[i + 1];
+          const next = effectiveArgs[i + 1];
           if (next && !next.startsWith("-")) {
-            toolArgs[key] = next;
+            toolArgs[key] = next.replace(/^['"]|['"]$/g, ""); // strip quotes
             i++;
           }
         }
@@ -238,24 +249,29 @@ program
       }),
     });
 
-    const data = (await res.json()) as {
-      error?: { code: number; message: string };
-      result?: { content?: { type: string; text: string }[] };
-    };
-    if (data.error) {
-      console.error(JSON.stringify(data.error));
-      process.exit(1);
-    }
-
-    const content = data.result?.content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block.type === "text") {
-          process.stdout.write(block.text + "\n");
-        }
+    const rawBody = await res.text();
+    try {
+      const data = JSON.parse(rawBody) as {
+        error?: { code: number; message: string };
+        result?: { content?: { type: string; text: string }[] };
+      };
+      if (data.error) {
+        console.error(JSON.stringify(data.error));
+        process.exit(1);
       }
-    } else {
-      process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
+      const content = data.result?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === "text") {
+            process.stdout.write(block.text + "\n");
+          }
+        }
+      } else {
+        process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
+      }
+    } catch {
+      if (rawBody) process.stdout.write(rawBody + "\n");
+      else console.error(`Tool "${tool}" returned empty response`);
     }
   });
 

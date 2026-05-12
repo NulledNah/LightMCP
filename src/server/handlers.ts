@@ -140,13 +140,21 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     task,
     selected: validEntries.length,
     total: catalog.length,
-    tools: validEntries.map((t) => ({
-      name: t.name,
-      serverKey: t.serverKey,
-      transport: t.serverTransport,
-      description: t.shortDesc || t.description?.slice(0, 100),
-      inputSchema: t.inputSchema,
-    })),
+    tools: validEntries.map((t) => {
+      const props = (t.inputSchema as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
+      const argNames = props ? Object.keys(props) : [];
+      const exampleArgs = argNames.length > 0
+        ? "--" + argNames.map(k => `${k} "<value>"`).join(" --")
+        : "";
+      return {
+        name: t.name,
+        serverKey: t.serverKey,
+        transport: t.serverTransport,
+        description: t.shortDesc || t.description?.slice(0, 100),
+        inputSchema: t.inputSchema,
+        usage: `lightmcp call ${t.name} ${exampleArgs}`.trim(),
+      };
+    }),
   };
 
   console.log(
