@@ -31,24 +31,6 @@ export const GetToolsInputSchema = z.object({
 export type GetToolsInput = z.infer<typeof GetToolsInputSchema>;
 
 let _registeredTools: RegisteredTool[] = [];
-let _lastSelectedNames: string[] = [];
-
-/** Remove all dynamically registered tools from the McpServer. */
-async function unregisterAllTools(): Promise<void> {
-  const { untrackTool } = await import("./mcp_server.js");
-  for (const name of _lastSelectedNames) {
-    untrackTool(name);
-  }
-  for (const reg of _registeredTools) {
-    try {
-      reg.remove();
-    } catch {
-      // Already removed or never registered
-    }
-  }
-  _registeredTools = [];
-  _lastSelectedNames = [];
-}
 
 /** Loose input schema for proxied tools — accepts any object. */
 const PassthroughSchema = z.object({}).passthrough();
@@ -110,7 +92,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
   // 5. Dynamically register selected tools on the McpServer
   //    so the agent can call them through LightMCP.
   try {
-    const { getMcpServer, trackTool, untrackTool } = await import("./mcp_server.js");
+    const { getMcpServer } = await import("./mcp_server.js");
     const { callTool } = await import("./proxy.js");
     const mcpServer = getMcpServer();
 
@@ -122,12 +104,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
         // Already removed
       }
     }
-    // Also untrack their names
-    for (const t of _lastSelectedNames) {
-      untrackTool(t);
-    }
     _registeredTools = [];
-    _lastSelectedNames = [];
 
     // Register each selected tool with a forward handler
     for (const entry of validEntries) {
@@ -149,11 +126,6 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
         }
       );
       _registeredTools.push(registered);
-      _lastSelectedNames.push(toolName);
-      trackTool(toolName, entry.shortDesc || entry.description?.slice(0, 100) || `Tool from ${serverKey}`, {
-        type: "object",
-        properties: {},
-      });
     }
 
     if (validEntries.length > 0) {

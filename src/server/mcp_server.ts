@@ -22,10 +22,6 @@ let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
 
-// Track registered tool names and schemas for compatibility layer
-const _toolNames: { name: string; description: string }[] = [];
-const _toolSchemas = new Map<string, Record<string, unknown>>();
-
 async function getVersion(): Promise<string> {
   if (_version) return _version;
   try {
@@ -44,27 +40,22 @@ export function getMcpServer(): McpServer {
   return _mcpServer;
 }
 
-/** Register a tool for the compatibility tools/list handler */
-export function trackTool(name: string, description: string, inputSchema?: Record<string, unknown>): void {
-  const idx = _toolNames.findIndex(t => t.name === name);
-  if (idx >= 0) _toolNames[idx] = { name, description };
-  else _toolNames.push({ name, description });
-  if (inputSchema) _toolSchemas.set(name, inputSchema);
-}
-
-/** Remove a tracked tool name */
-export function untrackTool(name: string): void {
-  const idx = _toolNames.findIndex(t => t.name === name);
-  if (idx >= 0) _toolNames.splice(idx, 1);
-  _toolSchemas.delete(name);
-}
-
 export async function createMcpServer(): Promise<express.Application> {
   await loadConfig(); // ensure config is valid
   const version = await getVersion();
 
   const app = express();
   app.use(express.json({ limit: "4mb" }));
+
+  // Inject missing Accept header for non-compliant MCP clients
+  app.use((req, _res, next) => {
+    if (req.path === "/mcp" && req.method === "POST") {
+      if (!req.headers["accept"]) {
+        req.headers["accept"] = "application/json, text/event-stream";
+      }
+    }
+    next();
+  });
 
   // ── Health check ──────────────────────────────────────────
   app.get("/health", (_req, res) => {
@@ -96,37 +87,21 @@ export async function createMcpServer(): Promise<express.Application> {
     },
     handleGetTools
   );
-  trackTool("get_task_tools", "Discover the exact tools relevant to your task.", {
-    type: "object",
-    properties: {
-      task: {
-        type: "string",
-        description: "Natural language description of the task you need tools for.",
-      },
-      hints: {
-        type: "array",
-        items: { type: "string" },
-        description: "Optional keywords to guide selection.",
-      },
-    },
-    required: ["task"],
-  });
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
 
   // ── MCP endpoints ─────────────────────────────────────────
   //
-  // Antigravity and some agents call tools/list without the full
-  // MCP handshake (no initialize, wrong Accept header). We intercept
-  // these and reply directly, bypassing the SDK transport.
+  // The SDK transport handles tools/list, tools/call, etc.
+  // We only intercept initialize to return clean JSON (not SSE).
 
   app.post("/mcp", async (req, res) => {
     try {
       const body = req.body;
       const method = body?.method;
 
-      // Compatibility: handle initialize with clean JSON (not SSE)
+      // Intercept initialize: return clean JSON, not SSE
       if (method === "initialize") {
         res.json({
           jsonrpc: "2.0",
@@ -140,27 +115,7 @@ export async function createMcpServer(): Promise<express.Application> {
         return;
       }
 
-      // Compatibility: handle tools/list without full MCP handshake
-      if (method === "tools/list") {
-        const tools = _toolNames.map(t => ({
-          name: t.name,
-          description: t.description,
-          inputSchema: _toolSchemas.get(t.name) ?? { type: "object" },
-        }));
-
-        res.json({ jsonrpc: "2.0", id: body.id, result: { tools } });
-        return;
-      }
-
-      // Compatibility: handle tools/call for get_task_tools directly
-      if (method === "tools/call" && body?.params?.name === "get_task_tools") {
-        const args = body.params.arguments ?? {};
-        const result = await handleGetTools(args as Parameters<typeof handleGetTools>[0]);
-        res.json({ jsonrpc: "2.0", id: body.id, result });
-        return;
-      }
-
-      // Full MCP protocol: pass through to the SDK transport
+      // All other MCP methods: delegate to SDK transport
       await _transport!.handleRequest(req, res, body);
     } catch (err) {
       console.error("MCP POST error:", err);
