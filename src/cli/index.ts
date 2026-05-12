@@ -9,9 +9,9 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Load .env if present
+// Load .env silently — no stdout pollution (MCP protocol requires clean stdout)
 import { config as dotenvConfig } from "dotenv";
-dotenvConfig();
+dotenvConfig({ quiet: true });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, "../../package.json");

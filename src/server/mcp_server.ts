@@ -118,6 +118,40 @@ export async function createMcpServer(): Promise<express.Application> {
         return;
       }
 
+      // Handle tools/list without session (Antigravity spawns new process per call)
+      if (method === "tools/list" && !req.headers["mcp-session-id"]) {
+        res.json({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            tools: [{
+              name: "get_task_tools",
+              description:
+                "Call this before any task to discover which tools are available. " +
+                "Provide a description of what you need to accomplish and receive " +
+                "the exact set of tools relevant to your task. The returned tools " +
+                "become immediately callable. Use this as the first step in every task.",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  task: {
+                    type: "string",
+                    description: "Natural language description of the task you need tools for.",
+                  },
+                  hints: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Optional keywords to guide selection.",
+                  },
+                },
+                required: ["task"],
+              },
+            }],
+          },
+        });
+        return;
+      }
+
       // All other MCP methods: delegate to SDK transport
       await _transport!.handleRequest(req, res, body);
     } catch (err) {
