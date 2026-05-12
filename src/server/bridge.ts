@@ -115,10 +115,9 @@ if (args[0] === "tool" && args[1] === "call" && args[2]) {
 
 // ── STDIO mode: read JSON-RPC lines from stdin ─────────────
 
-console.error("[bridge] LightMCP STDIO bridge →", LIGHTMCP_URL);
-
 const rl = createInterface({ input: process.stdin });
 
+// Silence stderr to avoid corrupting MCP JSON-RPC protocol
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
 
