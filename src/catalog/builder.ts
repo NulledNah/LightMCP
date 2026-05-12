@@ -300,14 +300,7 @@ export async function buildCatalog(opts: {
 
     let added = 0;
 
-    const disabledSet = new Set(serverCfg.disabledTools ?? []);
-
     for (const t of rawTools) {
-      if (disabledSet.has(t.name)) {
-        console.log(`     [SKIP] ${t.name} (disabled per config)`);
-        continue;
-      }
-
       tools.push({
         name: t.name,
         serverKey: key,

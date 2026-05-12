@@ -80,7 +80,7 @@ describe('catalog builder', () => {
     expect(catalog.servers[0].toolCount).toBe(0);
   });
 
-  it('should filter out disabledTools per server', async () => {
+  it('should not filter out disabledTools (LightMCP catalogs all tools)', async () => {
     vi.mocked(config.loadMcpConfig).mockResolvedValue({
       mcpServers: {
         http_server: { serverUrl: 'http://remote/mcp', disabledTools: ['unwanted_tool'] }
@@ -88,18 +88,18 @@ describe('catalog builder', () => {
     } as any);
 
     vi.mocked(global.fetch)
-      // http_server: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([
         { name: 'good_tool', description: 'useful' },
-        { name: 'unwanted_tool', description: 'should not appear' },
+        { name: 'unwanted_tool', description: 'still cataloged' },
         { name: 'another_good', description: 'also useful' },
       ]));
 
     const catalog = await buildCatalog();
 
-    expect(catalog.tools).toHaveLength(2);
-    expect(catalog.tools.map(t => t.name)).toEqual(['good_tool', 'another_good']);
+    // LightMCP catalogs ALL tools regardless of disabledTools in agent config
+    expect(catalog.tools).toHaveLength(3);
+    expect(catalog.tools.map(t => t.name)).toEqual(['good_tool', 'unwanted_tool', 'another_good']);
   });
 
   it('should include all servers when activeOnly is false', async () => {
