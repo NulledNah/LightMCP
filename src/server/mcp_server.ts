@@ -22,6 +22,9 @@ let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
 
+// Track registered tool names for compatibility layer
+const _toolNames: { name: string; description: string }[] = [];
+
 async function getVersion(): Promise<string> {
   if (_version) return _version;
   try {
@@ -38,6 +41,20 @@ async function getVersion(): Promise<string> {
 export function getMcpServer(): McpServer {
   if (!_mcpServer) throw new Error("McpServer not initialized — call createMcpServer() first");
   return _mcpServer;
+}
+
+/** Register a tool name for the compatibility tools/list handler */
+export function trackTool(name: string, description: string): void {
+  // Avoid duplicates
+  const idx = _toolNames.findIndex(t => t.name === name);
+  if (idx >= 0) _toolNames[idx] = { name, description };
+  else _toolNames.push({ name, description });
+}
+
+/** Remove a tracked tool name */
+export function untrackTool(name: string): void {
+  const idx = _toolNames.findIndex(t => t.name === name);
+  if (idx >= 0) _toolNames.splice(idx, 1);
 }
 
 export async function createMcpServer(): Promise<express.Application> {
@@ -65,25 +82,55 @@ export async function createMcpServer(): Promise<express.Application> {
   _mcpServer = new McpServer({ name: "lightmcp", version });
 
   // Permanent tool: the semantic selector
+  const selectorDesc =
+    "Ask LightMCP which tools are relevant for a given task. " +
+    "ALWAYS call this first before any task to discover available tools. " +
+    "Returns the best matching MCP tools from all connected servers.";
   _mcpServer.registerTool(
     "lightmcp_get_tools",
     {
-      description:
-        "Ask LightMCP which tools are relevant for a given task. " +
-        "Returns the best matching MCP tools from all connected servers. " +
-        "Use this before calling any other tool to discover what's available.",
+      description: selectorDesc,
       inputSchema: GetToolsInputSchema,
     },
     handleGetTools
   );
+  trackTool("lightmcp_get_tools", selectorDesc);
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
 
-  // ── MCP endpoints — pass through to the singleton transport ─
+  // ── MCP endpoints ─────────────────────────────────────────
+  //
+  // Antigravity and some agents call tools/list without the full
+  // MCP handshake (no initialize, wrong Accept header). We intercept
+  // these and reply directly, bypassing the SDK transport.
+
   app.post("/mcp", async (req, res) => {
     try {
-      await _transport!.handleRequest(req, res, req.body);
+      const body = req.body;
+      const method = body?.method;
+
+      // Compatibility: handle tools/list without full MCP handshake
+      if (method === "tools/list") {
+        const tools = _toolNames.map(t => ({
+          name: t.name,
+          description: t.description,
+        }));
+
+        res.json({ jsonrpc: "2.0", id: body.id, result: { tools } });
+        return;
+      }
+
+      // Compatibility: handle tools/call for lightmcp_get_tools directly
+      if (method === "tools/call" && body?.params?.name === "lightmcp_get_tools") {
+        const args = body.params.arguments ?? {};
+        const result = await handleGetTools(args as Parameters<typeof handleGetTools>[0]);
+        res.json({ jsonrpc: "2.0", id: body.id, result });
+        return;
+      }
+
+      // Full MCP protocol: pass through to the SDK transport
+      await _transport!.handleRequest(req, res, body);
     } catch (err) {
       console.error("MCP POST error:", err);
       if (!res.headersSent) {
