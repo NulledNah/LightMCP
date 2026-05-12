@@ -174,7 +174,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
   };
 
   console.log(
-    `  [OK] Selected ${validEntries.length}/${catalog.length} tools for: "${task.slice(0, 60)}..."`
+    `  [OK] Selected ${validEntries.length}/${catalog.length} tools for: "${(task ?? "").slice(0, 60)}..."`
   );
 
   return {

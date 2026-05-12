@@ -71,7 +71,7 @@ if (args[0] === "tool" && args[1] === "call" && args[2]) {
     try {
       toolArgs = JSON.parse(args[3]);
     } catch {
-      toolArgs = { input: args.slice(3).join(" ") };
+      toolArgs = { task: args.slice(3).join(" ") };
     }
   }
 
