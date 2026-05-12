@@ -205,7 +205,7 @@ During `lightmcp setup`, LightMCP scans your system for compatible AI agents (An
 
 | Mode | Behavior |
 |------|----------|
-| **Isolate** | Disables all other MCP servers in detected agents, keeping only LightMCP. Best for minimizing context usage. |
+| **Isolate** (Recommended) | Disables all other MCP servers in detected agents, keeping only LightMCP. Best for minimizing context usage. |
 | **Add** | Leaves existing MCP servers untouched, adds LightMCP alongside them. |
 | **Manual** | No changes — prints the exact JSON snippet and config path for each detected agent. |
 

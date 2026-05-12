@@ -228,7 +228,7 @@ program
       }
 
       console.log("\n  How should LightMCP configure these agents?\n");
-      console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP");
+      console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP (Recommended)");
       console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
       console.log("  [3] Manual  — skip auto-config, show manual instructions");
       console.log("");
@@ -306,7 +306,7 @@ program
     }
 
     console.log("\n  How should LightMCP configure these agents?\n");
-    console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP");
+    console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP (Recommended)");
     console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
     console.log("  [3] Manual  — skip auto-config, show manual instructions");
     console.log("");
