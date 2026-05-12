@@ -171,17 +171,21 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
   const servers = (cfg[agent.mcpServersKey] ?? {}) as Record<string, unknown>;
 
   if (choice === "isolate") {
-    // Disable all non-lightmcp servers
-    for (const [key, entry] of Object.entries(servers)) {
-      if (key === "lightmcp") continue;
-      if (typeof entry === "object" && entry !== null) {
-        (entry as Record<string, unknown>).disabled = true;
-      }
-    }
-    servers.lightmcp = agent.lightMCPEntry;
-    cfg[agent.mcpServersKey] = servers;
-    writeFileSync(agent.configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
-    return `disabled ${Object.keys(servers).length - 1} other servers, enabled LightMCP`;
+    // Save full server list for LightMCP internal use
+    const configDir = path.dirname(agent.configPath);
+    const fullServersPath = path.join(configDir, "lightmcp_servers.json");
+    writeFileSync(
+      fullServersPath,
+      JSON.stringify(cfg, null, 2) + "\n",
+      "utf-8"
+    );
+
+    // Replace agent config with ONLY LightMCP
+    const cleanCfg = { [agent.mcpServersKey]: { lightmcp: agent.lightMCPEntry } };
+    writeFileSync(agent.configPath, JSON.stringify(cleanCfg, null, 2) + "\n", "utf-8");
+
+    const serverCount = Object.keys(servers).filter(k => k !== "lightmcp").length;
+    return `saved full server list to ${fullServersPath}, agent config now LightMCP-only (was ${serverCount} servers)`;
   } else {
     // Just add LightMCP
     servers.lightmcp = agent.lightMCPEntry;
