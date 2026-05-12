@@ -15,6 +15,9 @@ import {
   handleGetTools,
   GetToolsInputSchema,
 } from "./handlers.js";
+import { getCatalogTools } from "../catalog/loader.js";
+import { callTool } from "./proxy.js";
+import { z } from "zod";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -82,19 +85,51 @@ export async function createMcpServer(): Promise<express.Application> {
   _mcpServer = new McpServer({ name: "lightmcp", version });
 
   // Permanent tool: the semantic selector
-  const selectorDesc =
-    "Ask LightMCP which tools are relevant for a given task. " +
-    "ALWAYS call this first before any task to discover available tools. " +
-    "Returns the best matching MCP tools from all connected servers.";
   _mcpServer.registerTool(
     "lightmcp_get_tools",
     {
-      description: selectorDesc,
+      description:
+        "Ask LightMCP which tools are relevant for a given task. " +
+        "Returns the best matching MCP tools from all connected servers. " +
+        "Use this before calling any other tool to discover what's available.",
       inputSchema: GetToolsInputSchema,
     },
     handleGetTools
   );
-  trackTool("lightmcp_get_tools", selectorDesc);
+  trackTool("lightmcp_get_tools", "Semantic tool selector — ask which tools are relevant for your task.");
+
+  // Register ALL catalog tools at startup (Antigravity needs direct access)
+  const PassthroughSchema = z.object({}).passthrough();
+  try {
+    const catalog = await getCatalogTools();
+    if (catalog.length > 0) {
+      let registered = 0;
+      for (const entry of catalog) {
+        const serverKey = entry.serverKey;
+        const toolName = entry.name;
+        try {
+          _mcpServer.registerTool(
+            toolName,
+            {
+              description: entry.description || `Tool from ${serverKey}`,
+              inputSchema: PassthroughSchema,
+              _meta: { serverKey, transport: entry.serverTransport },
+            },
+            async (args) => {
+              return callTool(serverKey, toolName, args as Record<string, unknown> | undefined);
+            }
+          );
+          trackTool(toolName, entry.shortDesc || entry.description?.slice(0, 100) || `Tool from ${serverKey}`);
+          registered++;
+        } catch {
+          // Duplicate tool name, skip
+        }
+      }
+      console.log(`  [REG] Registered ${registered} tools from catalog`);
+    }
+  } catch (err) {
+    console.error("Failed to register catalog tools:", err);
+  }
 
   // Connect transport ONCE
   await _mcpServer.connect(_transport);
