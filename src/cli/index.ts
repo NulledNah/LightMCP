@@ -157,6 +157,42 @@ program
   .description("Get relevant tools for a task via semantic LLM selection")
   .option("--hints <hints>", "Comma-separated hints", "")
   .action(async (task: string, opts: { hints: string }) => {
+    const { loadConfig } = await import("../config.js");
+    const cfg = await loadConfig();
+    const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
+    const hints = opts.hints ? opts.hints.split(",").map((h) => h.trim()) : [];
+
+    // Try HTTP server first (ensures tools get registered on McpServer)
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "tools/call",
+          params: { name: "get_task_tools", arguments: { task, hints } },
+        }),
+        signal: AbortSignal.timeout(5_000),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as { result?: { content?: { type: string; text: string }[] } };
+        const text = (data.result as any)?.content?.[0]?.text;
+        if (text) {
+          const result = JSON.parse(text);
+          for (const t of result.tools ?? []) {
+            console.log(`${t.name} [${t.serverKey}] ${t.description}`);
+            if (t.usage) console.log(`  Usage: ${t.usage}`);
+          }
+          console.log(`\n${result.selected ?? result.tools?.length ?? 0}/${result.total ?? "?"} tools selected — ready to call`);
+          return;
+        }
+      }
+    } catch {
+      // Server not running — fall through to local mode
+    }
+
+    // Fallback: local Ollama selection (tools won't be registered on McpServer)
+    console.log("[INFO] Server not reachable — using local mode (tools not registered)");
     const { getCatalogTools } = await import("../catalog/loader.js");
     const { buildCatalog } = await import("../catalog/builder.js");
     const { ensureOllamaReady, stopOllama } = await import("../ollama/manager.js");
@@ -168,15 +204,12 @@ program
       catalog = built.tools;
     }
 
-    const hints = opts.hints ? opts.hints.split(",").map((h) => h.trim()) : [];
-
     await ensureOllamaReady();
 
     try {
       const selected = await selectTools(task, catalog, hints);
       const validTools = catalog.filter((t) => selected.includes(t.name));
 
-      // Output: one tool per line in a clean format
       for (const t of validTools) {
         console.log(`${t.name} [${t.serverKey}] ${t.shortDesc}`);
       }
