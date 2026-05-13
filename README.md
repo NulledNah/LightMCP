@@ -54,7 +54,7 @@ npm install
 # 2. Build
 npm run build
 
-# 3. Run setup (installs Ollama, pulls model, builds catalog, registers startup)
+# 3. Run setup (installs Ollama, pulls model, builds catalog, generates tips, configures agents, registers startup)
 node dist/cli/index.js setup
 # or if globally installed:
 lightmcp setup
@@ -63,7 +63,18 @@ lightmcp setup
 lightmcp start
 ```
 
-Then add to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.gemini\antigravity\mcp_config.json`):
+`lightmcp setup` now handles everything automatically:
+1. Installs Ollama (if missing)
+2. Pulls the configured model
+3. Builds the tool catalog from all downstream MCP servers
+4. Generates procedural usage tips for every tool via the local LLM
+5. Scans for AI agents and lets you choose which to configure
+6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`)
+7. Registers Windows startup via Task Scheduler
+
+### Manual steps (if needed)
+
+If you skipped agent configuration during setup, add LightMCP to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.gemini\antigravity\mcp_config.json`):
 
 ```json
 {
@@ -76,6 +87,19 @@ Then add to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.g
 ```
 
 **Important:** Only LightMCP goes in the agent's config. All other MCP servers (KiCad, Chrome DevTools, etc.) are configured in the file pointed to by `mcpConfigPath` in `lightmcp_config.json` (default: auto-detected from the standard Antigravity path). LightMCP reads that file to build its internal tool catalog.
+
+### Generate tips (optional, already done by setup)
+
+```bash
+# Generate procedural usage tips for all tools
+lightmcp generate-tips
+
+# Or for a specific server
+lightmcp generate-tips --server autodesk-fusion
+
+# Rebuild catalog to inject tips
+lightmcp build-catalog
+```
 
 ---
 
@@ -230,18 +254,31 @@ Detected agents and their MCP config paths:
 
 ## How to Use
 
-Once running, your agent connects only to LightMCP. The full flow:
+Once running, your agent connects only to LightMCP. Here's a real tested flow from v0.2.0:
 
 ```
-1. Agent calls lightmcp_get_tools("create a KiCad footprint for a JST-SH")
-2. Ollama selects: create_footprint, list_footprint_libraries, get_footprint_info
-3. LightMCP dynamically registers these 3 tools on its MCP server
-4. Agent receives notification, calls tools/list, sees the 3 tools
-5. Agent calls create_footprint(...) through LightMCP
-6. LightMCP forwards the call to KiCad MCP, returns the result
+1. Agent calls get_task_tools("generate a 10mm cube in Autodesk Fusion")
+2. Domain-aware pre-filter: 173 tools → 3 Fusion tools
+3. Ollama selects: fusion_mcp_execute, fusion_mcp_read
+4. LightMCP dynamically registers these 2 tools on its MCP server
+5. Agent writes Python script → creates args.json with --file flag
+6. Agent calls fusion_mcp_execute --file args.json → cube created
+7. Agent calls fusion_mcp_read --file read_args.json --output screenshot.png → visual verify
 ```
 
-The agent never sees the 137 KiCad tools — only the 3 relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
+More examples:
+```
+lightmcp get-tools "create a KiCad footprint for a JST-SH connector"
+lightmcp call search_footprints --search_term "JST-SH"
+lightmcp call create_footprint --name "JST-SH" --library "Connectors"
+
+lightmcp get-tools "debug performance of my landing page"
+lightmcp call navigate_page --url "https://mysite.com"
+lightmcp call performance_start_trace --reload true
+lightmcp take_screenshot --output landing.png
+```
+
+The agent never sees the 137 KiCad tools — only the relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
 
 ---
 
@@ -284,6 +321,24 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
 | Create a KiCad PCB footprint | PCB/EDA | `create_footprint` + complementary tools selected |
 | Screenshot Fusion viewport | 3D CAD | `--output` flag saves PNG directly |
 | Batch tip generation (173 tools) | All | Stable across 6+ minutes without Ollama shutdown |
+
+---
+
+## Antigravity Global Rule
+
+`lightmcp setup` automatically installs a global rule at `~/.gemini/GEMINI.md` that teaches Antigravity how to use LightMCP:
+
+- Always call `get_task_tools` before any task
+- Use `--file` for complex JSON arguments
+- Domain-specific guidance for Fusion 360, KiCad, and Chrome DevTools
+
+To install manually:
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini"
+Copy-Item scripts\antigravity_rule.md "$env:USERPROFILE\.gemini\GEMINI.md"
+```
+
+If `~/.gemini/GEMINI.md` already exists, the template is prepended to preserve your existing rules.
 
 ---
 

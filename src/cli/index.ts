@@ -13,6 +13,39 @@ import { fileURLToPath } from "node:url";
 import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ quiet: true });
 
+/** Strip tool name mentions and "Use this tool" cruft anywhere in the text */
+function cleanTip(raw: string, toolName: string): string {
+  let tip = raw;
+  const n = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // "Use 'toolname' when/to/for/..." at start
+  tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"]\\s+(when|to|for|in|as|with)\\s+`, 'i'),
+    (_: string, w: string) => w.charAt(0).toUpperCase() + w.slice(1) + " ");
+  tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"][,\\s]*`, 'i'), "");
+
+  // ", use 'toolname' to/..." mid-sentence
+  tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'gi'),
+    (_: string, p: string, w: string) => p + " " + w + " ");
+  tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), "$1 ");
+
+  // ". Use 'toolname' to/..." after period
+  tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'g'),
+    (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
+  tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), ". ");
+
+  // "Use this tool to/when/..." (generic)
+  tip = tip.replace(/[,;]\s*Use this tool\s+(to|for|as|when)\s+/gi,
+    (_: string, w: string) => ", " + w + " ");
+  tip = tip.replace(/\.\s*Use this tool\s+(to|for|as|when)\s+/g,
+    (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
+
+  // Cleanup: collapse whitespace
+  tip = tip.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
+  // Capitalize first letter
+  if (tip.length > 0) tip = tip.charAt(0).toUpperCase() + tip.slice(1);
+  return tip;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, "../../package.json");
 
@@ -337,6 +370,7 @@ program
     const { execSync } = await import("node:child_process");
     const { createInterface } = await import("node:readline");
     const osMod = await import("node:os");
+    const { readFile, writeFile } = await import("node:fs/promises");
 
     console.log("\n[INFO] LightMCP Setup\n");
 
@@ -387,7 +421,98 @@ program
     const { buildCatalog } = await import("../catalog/builder.js");
     await buildCatalog();
 
-    // 4. Scan for AI agents and configure
+    // 4. Generate tool tips and rebuild catalog with tips
+    console.log("\n[INFO] Generating tool tips (improves selection accuracy)...");
+    const { keepOllamaAlive } = await import("../ollama/manager.js");
+    const { getCatalogTools } = await import("../catalog/loader.js");
+    const pathMod = await import("node:path");
+
+    await startOllama();
+
+    let tipsCount = 0;
+    try {
+      const catalog = await getCatalogTools();
+      const tipsPath = pathMod.resolve(process.cwd(), "tool_tips.json");
+      const existingTips: Record<string, string> = {};
+
+      if (existsSync(tipsPath)) {
+        try {
+          const raw = await readFile(tipsPath, "utf-8");
+          const parsed = JSON.parse(raw);
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v === "string") existingTips[k] = v;
+          }
+        } catch { /* start fresh */ }
+      }
+
+      const toolsToTip = catalog.filter(t => !existingTips[t.name]);
+      if (toolsToTip.length > 0) {
+        const { host, model } = cfg.ollama;
+
+        const tipPrompt = (t: typeof catalog[number]) =>
+          `Write a concise usage tip (max 100 chars) explaining WHEN to select this tool — its role in a workflow.
+CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
+  Good: "When you need to quickly find a specific component by name in your library"
+  Bad:  "When you need to find a component, use 'search_footprints' to locate it"
+
+Tool name: "${t.name}"
+Server: ${t.serverKey}
+Description: ${t.description?.slice(0, 400) ?? "No description"}
+
+Tip (max 100 chars):`;
+
+        console.log(`  Generating tips for ${toolsToTip.length} tool(s)...`);
+        for (let i = 0; i < toolsToTip.length; i++) {
+          const t = toolsToTip[i];
+          try {
+            const res = await fetch(`${host}/api/chat`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model,
+                stream: false,
+                messages: [{ role: "user", content: tipPrompt(t) }],
+                options: { temperature: 0.1, num_predict: 128, top_k: 20, top_p: 0.9 },
+              }),
+              signal: AbortSignal.timeout(30_000),
+            });
+            if (res.ok) {
+              const data = (await res.json()) as { message?: { content?: string } };
+              const raw = (data.message?.content ?? "").trim()
+                .replace(/^["']|["']$/g, "")
+                .replace(/^Tip:\s*/i, "");
+
+              const cleaned = cleanTip(raw, t.name);
+              const tip = cleaned.length > 120
+                ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 60 ? s.slice(0, sp) : s; })()
+                : cleaned;
+
+              if (tip) {
+                existingTips[t.name] = tip;
+                tipsCount++;
+                await keepOllamaAlive();
+              }
+            }
+          } catch { /* skip individual failures */ }
+        }
+
+        // Sort and save
+        const sorted: Record<string, string> = {};
+        for (const key of Object.keys(existingTips).sort()) sorted[key] = existingTips[key];
+        await writeFile(tipsPath, JSON.stringify(sorted, null, 2), "utf-8");
+        console.log(`  [OK] ${tipsCount} new tip(s) generated`);
+      } else {
+        console.log("  [OK] All tools already have tips");
+      }
+
+      // Rebuild catalog with tips injected
+      console.log("  [INFO] Rebuilding catalog with tips...");
+      await buildCatalog();
+    } finally {
+      await stopOllama();
+    }
+
+    // 5. Scan for AI agents and configure
     console.log("\n[INFO] Scanning for AI agents...");
     const { detectAgents, configureAllAgents, generateManualInstructions } =
       await import("../setup/scanner.js");
@@ -398,39 +523,82 @@ program
       console.log("  No compatible AI agents detected on this system.");
     } else {
       console.log(`\n  Detected ${agents.length} agent(s):`);
-      for (const a of agents) {
+      for (let i = 0; i < agents.length; i++) {
+        const a = agents[i];
         const status = a.hasLightMCP ? " (LightMCP already configured)" : "";
-        console.log(`    • ${a.name} — ${a.currentServerCount} MCP server(s)${status}`);
+        console.log(`    [${i + 1}] ${a.name} — ${a.currentServerCount} MCP server(s)${status}`);
       }
 
-      console.log("\n  How should LightMCP configure these agents?\n");
-      console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP (Recommended)");
-      console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
-      console.log("  [3] Manual  — skip auto-config, show manual instructions");
-      console.log("");
-
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const choice = await new Promise<string>((resolve) => {
-        rl.question("  Choose [1/2/3]: ", (answer) => {
+      const agentChoice = await new Promise<string>((resolve) => {
+        rl.question("\n  Which agents to configure? (1,2,... or 'all'): ", (answer) => {
           rl.close();
           resolve(answer.trim());
         });
       });
 
-      if (choice === "1" || choice === "2" || choice === "3") {
-        const modes = ["isolate", "add", "manual"] as const;
-        const mode = modes[parseInt(choice) - 1];
-
-        console.log("");
-        const results = configureAllAgents(mode, agents);
-        for (const r of results) console.log(`  ${r}`);
-
-        if (choice === "3") {
-          console.log(generateManualInstructions(agents));
+      let selectedAgents = agents;
+      if (agentChoice.toLowerCase() !== "all") {
+        const indices = agentChoice.split(",").map(s => parseInt(s.trim()) - 1).filter(i => !isNaN(i) && i >= 0 && i < agents.length);
+        selectedAgents = indices.map(i => agents[i]);
+        if (selectedAgents.length === 0) {
+          console.log("  No valid agents selected — skipping configuration.");
+          selectedAgents = [];
         }
-      } else {
-        console.log("  Invalid choice — skipping agent configuration.");
-        console.log("  Run 'lightmcp configure' later to set it up.");
+      }
+
+      if (selectedAgents.length > 0) {
+        const rl2 = createInterface({ input: process.stdin, output: process.stdout });
+        console.log("\n  How should LightMCP configure these agents?\n");
+        console.log("  [1] Isolate — disable all other MCP servers, keep only LightMCP (Recommended)");
+        console.log("  [2] Add     — leave existing servers as-is, add LightMCP");
+        console.log("  [3] Manual  — skip auto-config, show manual instructions");
+        console.log("");
+
+        const choice = await new Promise<string>((resolve) => {
+          rl2.question("  Choose [1/2/3]: ", (answer) => {
+            rl2.close();
+            resolve(answer.trim());
+          });
+        });
+
+        if (choice === "1" || choice === "2" || choice === "3") {
+          const modes = ["isolate", "add", "manual"] as const;
+          const mode = modes[parseInt(choice) - 1];
+
+          console.log("");
+          const results = configureAllAgents(mode, selectedAgents);
+          for (const r of results) console.log(`  ${r}`);
+
+          if (choice === "3") {
+            console.log(generateManualInstructions(selectedAgents));
+          }
+
+          // 6. Install Antigravity global rule
+          if (selectedAgents.some(a => a.name === "Antigravity")) {
+            const homedir = osMod.default.homedir();
+            const geminiMdPath = pathMod.resolve(homedir, ".gemini", "GEMINI.md");
+            const templatePath = path.resolve(__dirname, "../../scripts/antigravity_rule.md");
+
+            if (existsSync(templatePath)) {
+              const templateContent = await readFile(templatePath, "utf-8");
+              let existingContent = "";
+              if (existsSync(geminiMdPath)) {
+                existingContent = await readFile(geminiMdPath, "utf-8");
+              }
+
+              // Prepend template to existing content
+              const finalContent = templateContent.trim() + "\n\n" + existingContent.trim();
+              await writeFile(geminiMdPath, finalContent.trim() + "\n", "utf-8");
+              console.log(`  [OK] Antigravity global rule installed at ${geminiMdPath}`);
+            } else {
+              console.warn("  [WARN] antigravity_rule.md template not found — skip global rule");
+            }
+          }
+        } else {
+          console.log("  Invalid choice — skipping agent configuration.");
+          console.log("  Run 'lightmcp configure' later to set it up.");
+        }
       }
     }
 
@@ -597,39 +765,6 @@ Server: ${t.serverKey}${serverDomains[t.serverKey] ? ` [${serverDomains[t.server
 Description: ${t.description?.slice(0, 400) ?? "No description"}
 
 Tip (max 100 chars):`;
-
-    /** Strip tool name mentions and "Use this tool" cruft anywhere in the text */
-    function cleanTip(raw: string, toolName: string): string {
-      let tip = raw;
-      const n = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-      // "Use 'toolname' when/to/for/..." at start
-      tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"]\\s+(when|to|for|in|as|with)\\s+`, 'i'),
-        (_: string, w: string) => w.charAt(0).toUpperCase() + w.slice(1) + " ");
-      tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"][,\\s]*`, 'i'), "");
-
-      // ", use 'toolname' to/..." mid-sentence
-      tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'gi'),
-        (_: string, p: string, w: string) => p + " " + w + " ");
-      tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), "$1 ");
-
-      // ". Use 'toolname' to/..." after period
-      tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'g'),
-        (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
-      tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), ". ");
-
-      // "Use this tool to/when/..." (generic)
-      tip = tip.replace(/[,;]\s*Use this tool\s+(to|for|as|when)\s+/gi,
-        (_: string, w: string) => ", " + w + " ");
-      tip = tip.replace(/\.\s*Use this tool\s+(to|for|as|when)\s+/g,
-        (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
-
-      // Cleanup: collapse whitespace
-      tip = tip.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
-      // Capitalize first letter
-      if (tip.length > 0) tip = tip.charAt(0).toUpperCase() + tip.slice(1);
-      return tip;
-    }
 
     let generated = 0;
     let failed = 0;
