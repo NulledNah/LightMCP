@@ -225,8 +225,11 @@ program
         // Server responded but with non-ok status or unexpected format — try local
         break;
       } catch (err: unknown) {
-        const msg = (err as NodeJS.ErrnoException)?.code ?? "";
-        if (msg === "ECONNREFUSED" && attempt < 3) {
+        const e = err as Error;
+        const code = (e as any)?.cause?.code ?? (e as any)?.code ?? "";
+        const isConnErr = /ECONNREFUSED|ENOTFOUND|EADDRNOTAVAIL|fetch failed/i.test(code) ||
+          /ECONNREFUSED|fetch failed/i.test(e.message ?? "");
+        if (isConnErr && attempt < 3) {
           if (!serverStarted) {
             serverStarted = true;
             const { spawn } = await import("node:child_process");
@@ -878,17 +881,21 @@ Tip (max 100 chars):`;
 
 // ── Default: treat unknown args as "call <tool> [args...]" ─
 // Antigravity may run: lightmcp kicad search_footprints --query "x"
-program.action(async (...args: string[]) => {
+program.action(async (...args: (string | unknown)[]) => {
+  // Guard: ignore non-string args (Commander edge case with circular objects)
+  const strs = args.filter((a): a is string => typeof a === "string");
+  if (strs.length === 0) return;
+
   // Filter out known server key prefix
   const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
   let toolIdx = 0;
-  if (args.length > 1 && knownServers.includes(args[0])) {
+  if (strs.length > 1 && knownServers.includes(strs[0])) {
     toolIdx = 1;
   }
-  if (args.length <= toolIdx) return;
+  if (strs.length <= toolIdx) return;
 
-  const tool = args[toolIdx];
-  const rawArgs = args.slice(toolIdx + 1);
+  const tool = strs[toolIdx];
+  const rawArgs = strs.slice(toolIdx + 1);
 
   const { loadConfig } = await import("../config.js");
   const cfg = await loadConfig();
