@@ -34,11 +34,12 @@ function startServer(): Promise<void> {
 
   _serverStarting = new Promise<void>((resolve, reject) => {
     const proc = spawn("node", [cliPath, "start"], {
-      detached: false,
+      detached: true,
       stdio: "ignore",
       shell: process.platform === "win32",
       windowsHide: true,
     });
+    proc.unref();
 
     _serverProc = proc;
     proc.on("error", (err) => {
@@ -46,10 +47,20 @@ function startServer(): Promise<void> {
       reject(err);
     });
 
-    // Give the server time to start listening
-    setTimeout(() => {
-      resolve();
-    }, 3_000);
+    // Poll health endpoint until server is ready (max 15s)
+    const healthUrl = LIGHTMCP_URL.replace(/\/mcp$/, "/health");
+    const deadline = Date.now() + 15_000;
+    const poll = async () => {
+      while (Date.now() < deadline) {
+        try {
+          const res = await fetch(healthUrl, { signal: AbortSignal.timeout(2_000) });
+          if (res.ok) { resolve(); return; }
+        } catch { /* still starting */ }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      resolve(); // timeout reached — try anyway
+    };
+    void poll();
   });
 
   return _serverStarting;

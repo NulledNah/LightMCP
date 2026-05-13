@@ -227,9 +227,10 @@ program
       } catch (err: unknown) {
         const e = err as Error;
         const code = (e as any)?.cause?.code ?? (e as any)?.code ?? "";
+        const isAbort = e.name === "AbortError" || e.name === "TimeoutError" || (e as any)?.code === 23; // DOMException.ABORT_ERR
         const isConnErr = /ECONNREFUSED|ENOTFOUND|EADDRNOTAVAIL|fetch failed/i.test(code) ||
           /ECONNREFUSED|fetch failed/i.test(e.message ?? "");
-        if (isConnErr && attempt < 3) {
+        if ((isConnErr || isAbort) && attempt < 3) {
           if (!serverStarted) {
             serverStarted = true;
             const { spawn } = await import("node:child_process");
@@ -239,18 +240,27 @@ program
               pathMod.dirname(fileURLToPath(import.meta.url)),
               "index.js"
             );
-            spawn("node", [cliPath, "start"], {
-              detached: false,
+            const proc = spawn("node", [cliPath, "start"], {
+              detached: true,
               stdio: "ignore",
               shell: process.platform === "win32",
               windowsHide: true,
             });
+            proc.unref();
             if (process.env.LIGHTMCP_VERBOSE) {
               console.error("[get-tools] Server unreachable — starting LightMCP...");
             }
           }
-          // Wait for server to start, then retry
-          await new Promise((r) => setTimeout(r, 3_000));
+          // Poll health endpoint until server is ready (max 15s)
+          const healthUrl = url.replace(/\/mcp$/, "/health");
+          const deadline = Date.now() + 15_000;
+          while (Date.now() < deadline) {
+            try {
+              const h = await fetch(healthUrl, { signal: AbortSignal.timeout(2_000) });
+              if (h.ok) break;
+            } catch { /* still starting */ }
+            await new Promise((r) => setTimeout(r, 500));
+          }
           continue;
         }
         // Other error — fall through to local mode
