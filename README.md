@@ -10,7 +10,7 @@
 
 ## The Problem
 
-MCP-compatible agents (like Antigravity) have a hard limit of **100 tools** across all connected servers. With tools like KiCad MCP (137 tools), Chrome DevTools, and Fusion360 active simultaneously, you instantly blow past the limit — and even within it, injecting every tool definition into every conversation wastes thousands of tokens.
+Typically, MCP-compatible agents (such as Antigravity) have a maximum limit of **100 tools** across all connected servers in order to avoid overloading the context window with too many tools. With tools like KiCad MCP (137 tools), Chrome DevTools, and Fusion360 active simultaneously, you instantly blow past the limit — and even within it, injecting every tool definition into every conversation wastes thousands of tokens.
 
 ## The Solution
 
