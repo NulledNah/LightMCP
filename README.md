@@ -314,13 +314,11 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
 - Tool descriptions: 100 → 250 chars with word-boundary truncation
 
 ### Tested Use Cases
-| Scenario | Domain | Result |
-|----------|--------|--------|
-| Generate a 10mm cube in Autodesk Fusion 360 | 3D CAD | `fusion_mcp_execute` selected first try; script executed, cube created |
-| 3D model creation from TootallToby technical drawings (Tier 1–2) | 3D CAD | Correct tool selection + geometry creation up to tier 2 difficulty |
-| Create a KiCad PCB footprint | PCB/EDA | `create_footprint` + complementary tools selected |
-| Screenshot Fusion viewport | 3D CAD | `--output` flag saves PNG directly |
-| Batch tip generation (173 tools) | All | Stable across 6+ minutes without Ollama shutdown |
+| # | Scenario | Comando | Risultato |
+|---|----------|---------|-----------|
+| 1 | **Fusion 360: cubo 10mm** | `lightmcp get-tools "generate a 10mm cube in Autodesk Fusion"` → seleziona `fusion_mcp_execute`. Script Python eseguito con `lightmcp call fusion_mcp_execute --file args.json`. | Cubo creato. Verificato con `lightmcp call fusion_mcp_read --queryType "document" --operation "open"` → 1 corpo solido nel documento attivo. |
+| 2 | **Fusion 360: modello da disegno tecnico** | `lightmcp get-tools` su [TootallToby practice](https://tootalltoby.com/practice/b241362f-3964-4e43-9b31-057eeaa34147). `fusion_mcp_execute` selezionato, script generato dalle dimensioni del disegno. | Modello 3D creato correttamente fino a difficoltà Tier 2. Dimensioni verificate. |
+| 3 | **KiCad: ricerca footprint** | `lightmcp get-tools "search for a JST-SH footprint"` → seleziona `search_footprints` + `get_footprint_info`. | Footprint trovato e parametri verificati. |
 
 ---
 
