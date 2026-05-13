@@ -10,6 +10,49 @@ import { buildToolSelectionPrompt } from "../prompts/tool_selector.js";
 // Expected response: a JSON array of tool name strings
 const SelectionSchema = z.array(z.string().min(1));
 
+/** Domain keyword → server key mapping for pre-filtering the catalog */
+const DOMAIN_KEYWORDS: Record<string, string[]> = {
+  "autodesk-fusion": ["fusion", "cad", "3d", "cube", "model", "sketch", "extrude", "body", "autodesk", "solid", "mesh", "render"],
+  kicad: ["pcb", "kicad", "footprint", "schematic", "board", "trace", "pad", "routing", "circuit", "net", "drc", "erc", "gerber", "netlist", "copper"],
+  "chrome-devtools-mcp": ["browser", "web", "page", "url", "chrome", "screenshot", "navigate", "console", "devtools", "javascript", "css", "html", "dom", "network", "performance", "lighthouse"],
+  "sequential-thinking": ["think", "reason", "analyze", "step by step", "break down", "ponder", "deliberate"],
+  "google-developer-knowledge": ["google", "api doc", "developer documentation", "gcp", "firebase", "adk"],
+};
+
+/**
+ * Pre-filter the catalog based on domain keywords in the task.
+ * Reduces prompt size and eliminates cross-domain noise.
+ * Falls back to full catalog if no keywords match.
+ */
+function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
+  const lower = task.toLowerCase();
+
+  // Collect matched servers
+  const matched = new Set<string>();
+  for (const [server, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (lower.includes(kw)) {
+        matched.add(server);
+        break; // one match per server is enough
+      }
+    }
+  }
+
+  // No domain match → send full catalog (backward compatible)
+  if (matched.size === 0) return catalog;
+
+  const filtered = catalog.filter((t) => matched.has(t.serverKey));
+
+  // Safety: if filtering removed ALL tools, fall back to full catalog
+  if (filtered.length === 0) return catalog;
+
+  if (process.env.LIGHTMCP_VERBOSE) {
+    console.log(`\n[DEBUG] Pre-filter: ${catalog.length} → ${filtered.length} tools (servers: ${[...matched].join(", ")})`);
+  }
+
+  return filtered;
+}
+
 interface OllamaMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -23,6 +66,8 @@ interface OllamaChatRequest {
   options?: {
     temperature?: number;
     num_predict?: number;
+    top_k?: number;
+    top_p?: number;
   };
 }
 
@@ -41,7 +86,7 @@ export async function selectTools(
 
   const { systemPrompt, userPrompt } = buildToolSelectionPrompt(
     task,
-    catalog,
+    filterCatalogByTask(task, catalog),
     hints
   );
 
@@ -65,7 +110,9 @@ export async function selectTools(
     ],
     options: {
       temperature: 0.0,   // Deterministic — we want reliable JSON
-      num_predict: 512,
+      num_predict: 1024,  // More room for structured reasoning over large catalogs
+      top_k: 20,
+      top_p: 0.9,
     },
   };
 

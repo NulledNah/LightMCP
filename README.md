@@ -152,6 +152,12 @@ flowchart TB
 | `lightmcp build-catalog --active-only` | Only include tools from enabled servers |
 | `lightmcp status` | Show status of server, Ollama, and catalog |
 | `lightmcp test "<task>"` | Test tool routing locally |
+| `lightmcp get-tools "<task>"` | Discover relevant tools for a task via semantic LLM selection |
+| `lightmcp call <tool> [args...]` | Call a tool through LightMCP (forwards to downstream MCP server) |
+| `lightmcp call <tool> --file <path>` | Call a tool with arguments from a JSON file (bypasses shell quoting) |
+| `lightmcp call <tool> --output <path>` | Auto-decode base64 image results to a file |
+| `lightmcp generate-tips` | Generate procedural usage tips for each tool via local LLM |
+| `lightmcp generate-tips --server <key>` | Generate tips for a specific server only |
 | `lightmcp setup` | Full setup: Ollama + model + catalog + agent config + Windows startup |
 | `lightmcp configure` | Re-run AI agent MCP configuration (scan, isolate/add/manual) |
 
@@ -250,6 +256,34 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -RegisterTask
 # Remove
 powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
 ```
+
+---
+
+## What's New in v0.2.0
+
+### Semantic Tool Selection Upgrades
+- **Procedural tool tips** — `tool_tips.json` provides LLM-generated usage hints for each tool (when/why to use it, not just what it does). Generate via `lightmcp generate-tips`.
+- **Domain-aware pre-filtering** — scans the task for domain keywords (Fusion, PCB, browser, etc.) and sends only relevant server tools to Ollama, eliminating cross-domain noise.
+- **Structured reasoning framework** — system prompt guides the model through Task Analysis → Capability Mapping → Tool Selection.
+- **Server-grouped catalog with domain labels** — tools presented to the LLM as `=== autodesk-fusion [3D CAD / Fusion 360] ===` with parameter hints and tips.
+
+### CLI & Reliability
+- **`get-tools` command** — one-line tool discovery: `lightmcp get-tools "create a 10mm cube in Fusion"`
+- **`call` command with `--file`** — bypass PowerShell quoting hell by reading JSON arguments from a file: `lightmcp call fusion_mcp_execute --file args.json`
+- **`call --output <path>`** — auto-decode base64 image results (screenshots, renders) to PNG files
+- **`generate-tips` command** — per-tool LLM calls with zero cross-contamination, kept alive via `keepOllamaAlive()`
+- **Timeout increased** — `get-tools` CLI timeout 5s → 30s for reliable cold-start responses
+- Token budget: 512 → 1024, + `top_k` / `top_p` for inference quality
+- Tool descriptions: 100 → 250 chars with word-boundary truncation
+
+### Tested Use Cases
+| Scenario | Domain | Result |
+|----------|--------|--------|
+| Generate a 10mm cube in Autodesk Fusion 360 | 3D CAD | `fusion_mcp_execute` selected first try; script executed, cube created |
+| 3D model creation from TootallToby technical drawings (Tier 1–2) | 3D CAD | Correct tool selection + geometry creation up to tier 2 difficulty |
+| Create a KiCad PCB footprint | PCB/EDA | `create_footprint` + complementary tools selected |
+| Screenshot Fusion viewport | 3D CAD | `--output` flag saves PNG directly |
+| Batch tip generation (173 tools) | All | Stable across 6+ minutes without Ollama shutdown |
 
 ---
 

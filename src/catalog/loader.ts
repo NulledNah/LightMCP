@@ -26,6 +26,7 @@ const ToolCatalogSchema = z.object({
     description: z.string(),
     inputSchema: z.record(z.unknown()),
     shortDesc: z.string(),
+    tip: z.string().optional(),
   })),
 });
 

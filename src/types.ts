@@ -9,8 +9,10 @@ export interface ToolEntry {
   serverTransport: "stdio" | "http";
   description: string;
   inputSchema: Record<string, unknown>;
-  /** Short description used in the Ollama prompt (truncated to 100 chars) */
+  /** Short description used in the Ollama prompt (truncated to 250 chars) */
   shortDesc: string;
+  /** Procedural hint: when/why to use this tool (from tool_tips.json or auto-generated) */
+  tip?: string;
 }
 
 /** Full catalog persisted to disk */

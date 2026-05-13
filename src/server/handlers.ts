@@ -156,6 +156,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
         description: t.shortDesc || t.description?.slice(0, 100),
         inputSchema: t.inputSchema,
         usage: `lightmcp call ${t.name} ${exampleArgs}`.trim(),
+        tip: t.tip || undefined,
       };
     }),
   };

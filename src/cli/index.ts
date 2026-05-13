@@ -171,7 +171,7 @@ program
           jsonrpc: "2.0", id: 1, method: "tools/call",
           params: { name: "get_task_tools", arguments: { task, hints } },
         }),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (res.ok) {
@@ -223,8 +223,10 @@ program
   .command("call <tool>")
   .description("Call a tool through LightMCP (forwards to the real MCP server)")
   .argument("[json_or_key=value...]", "JSON arguments or key=value pairs for the tool")
+  .option("--file <path>", "Read tool arguments from a JSON file")
+  .option("--output <path>", "Save image results to file (auto-decodes base64)")
   .allowUnknownOption()
-  .action(async (firstArg: string, rawArgs: string[]) => {
+  .action(async (firstArg: string, rawArgs: string[], opts: { file?: string; output?: string }) => {
     const { loadConfig } = await import("../config.js");
     const cfg = await loadConfig();
     const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
@@ -240,29 +242,36 @@ program
     }
 
     let toolArgs: Record<string, unknown> = {};
-    const effectiveArgs = rawArgs.slice(argsStart);
 
-    if (effectiveArgs.length === 1) {
-      // Try parse as JSON, fallback to { input: text }
-      try {
-        toolArgs = JSON.parse(effectiveArgs[0]);
-      } catch {
-        toolArgs = { input: effectiveArgs[0] };
-      }
-    } else if (effectiveArgs.length > 1) {
-      // Parse as key=value or --key value pairs
-      for (let i = 0; i < effectiveArgs.length; i++) {
-        let key = effectiveArgs[i].replace(/^--?/, "");
-        const eqIdx = key.indexOf("=");
-        if (eqIdx >= 0) {
-          const val = key.slice(eqIdx + 1).replace(/^['"]|['"]$/g, ""); // strip quotes
-          key = key.slice(0, eqIdx);
-          toolArgs[key] = val;
-        } else {
-          const next = effectiveArgs[i + 1];
-          if (next && !next.startsWith("-")) {
-            toolArgs[key] = next.replace(/^['"]|['"]$/g, ""); // strip quotes
-            i++;
+    if (opts.file) {
+      const { readFile } = await import("node:fs/promises");
+      const raw = await readFile(opts.file, "utf-8");
+      toolArgs = JSON.parse(raw);
+    } else {
+      const effectiveArgs = rawArgs.slice(argsStart);
+
+      if (effectiveArgs.length === 1) {
+        // Try parse as JSON, fallback to { input: text }
+        try {
+          toolArgs = JSON.parse(effectiveArgs[0]);
+        } catch {
+          toolArgs = { input: effectiveArgs[0] };
+        }
+      } else if (effectiveArgs.length > 1) {
+        // Parse as key=value or --key value pairs
+        for (let i = 0; i < effectiveArgs.length; i++) {
+          let key = effectiveArgs[i].replace(/^--?/, "");
+          const eqIdx = key.indexOf("=");
+          if (eqIdx >= 0) {
+            const val = key.slice(eqIdx + 1).replace(/^['"]|['"]$/g, "");
+            key = key.slice(0, eqIdx);
+            toolArgs[key] = val;
+          } else {
+            const next = effectiveArgs[i + 1];
+            if (next && !next.startsWith("-")) {
+              toolArgs[key] = next.replace(/^['"]|['"]$/g, "");
+              i++;
+            }
           }
         }
       }
@@ -286,7 +295,7 @@ program
     try {
       const data = JSON.parse(rawBody) as {
         error?: { code: number; message: string };
-        result?: { content?: { type: string; text: string }[] };
+        result?: { content?: { type: string; text?: string; data?: string; mimeType?: string }[] };
       };
       if (data.error) {
         console.error(JSON.stringify(data.error));
@@ -295,10 +304,20 @@ program
       const content = data.result?.content;
       if (Array.isArray(content)) {
         for (const block of content) {
-          if (block.type === "text") {
-            process.stdout.write(block.text + "\n");
+          if (block.type === "text" && block.text) {
+            process.stdout.write(block.text);
+          } else if (block.type === "image" && block.data) {
+            if (opts.output) {
+              const { writeFile } = await import("node:fs/promises");
+              const buf = Buffer.from(block.data, "base64");
+              await writeFile(opts.output, buf);
+              process.stdout.write(`[OK] Image saved to ${opts.output}\n`);
+            } else {
+              process.stdout.write(block.data);
+            }
           }
         }
+        process.stdout.write("\n");
       } else {
         process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
       }
@@ -493,6 +512,192 @@ program
     console.log("");
   });
 
+// ── lightmcp generate-tips ──────────────────────────────────
+program
+  .command("generate-tips")
+  .description("Generate usage tips for each tool via local LLM (one call per tool, zero cross-contamination)")
+  .option("--server <key>", "Only generate tips for a specific server")
+  .option("--overwrite", "Overwrite existing tips (default: skip tools that already have tips)")
+  .action(async (opts: { server?: string; overwrite?: boolean }) => {
+    const { readFile, writeFile } = await import("node:fs/promises");
+    const { existsSync } = await import("node:fs");
+    const pathMod = await import("node:path");
+    const { getCatalogTools } = await import("../catalog/loader.js");
+    const { buildCatalog } = await import("../catalog/builder.js");
+    const { loadConfig } = await import("../config.js");
+    const { ensureOllamaReady, stopOllama, keepOllamaAlive } = await import("../ollama/manager.js");
+
+    let catalog = await getCatalogTools();
+    if (catalog.length === 0) {
+      console.log("[INFO] No catalog found - building first...");
+      const built = await buildCatalog();
+      catalog = built.tools;
+    }
+
+    // Filter by server if specified
+    let tools = catalog;
+    if (opts.server) {
+      tools = catalog.filter((t) => t.serverKey === opts.server);
+      if (tools.length === 0) {
+        console.log(`[INFO] No tools found for server "${opts.server}"`);
+        process.exit(0);
+      }
+      console.log(`[INFO] Generating tips for server "${opts.server}" (${tools.length} tools)`);
+    } else {
+      console.log(`[INFO] Generating tips for ${tools.length} tools across all servers`);
+    }
+
+    // Load existing tips
+    const tipsPath = pathMod.resolve(process.cwd(), "tool_tips.json");
+    const existingTips: Record<string, string> = {};
+    if (existsSync(tipsPath)) {
+      try {
+        const raw = await readFile(tipsPath, "utf-8");
+        const parsed = JSON.parse(raw);
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === "string") existingTips[k] = v;
+        }
+      } catch { /* start fresh */ }
+    }
+
+    // Filter out tools that already have tips (unless --overwrite)
+    if (!opts.overwrite) {
+      const skipped = tools.filter((t) => existingTips[t.name]);
+      tools = tools.filter((t) => !existingTips[t.name]);
+      if (skipped.length > 0) {
+        console.log(`[INFO] Skipping ${skipped.length} tool(s) with existing tips (use --overwrite to regenerate)`);
+      }
+    }
+
+    if (tools.length === 0) {
+      console.log("[INFO] All tools already have tips — nothing to do.");
+      process.exit(0);
+    }
+
+    await ensureOllamaReady();
+    const cfg = await loadConfig();
+    const { host, model } = cfg.ollama;
+
+    const serverDomains: Record<string, string> = {
+      kicad: "PCB / EDA design",
+      "chrome-devtools-mcp": "Browser / Web DevTools",
+      "autodesk-fusion": "3D CAD / Fusion 360",
+      "sequential-thinking": "Structured reasoning / analysis",
+      "google-developer-knowledge": "Google developer documentation",
+    };
+
+    const tipPrompt = (t: typeof tools[number]) =>
+      `Write a concise usage tip (max 100 chars) explaining WHEN to select this tool — its role in a workflow.
+CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
+  Good: "When you need to quickly find a specific component by name in your library"
+  Bad:  "When you need to find a component, use 'search_footprints' to locate it"
+
+Tool name: "${t.name}"
+Server: ${t.serverKey}${serverDomains[t.serverKey] ? ` [${serverDomains[t.serverKey]}]` : ""}
+Description: ${t.description?.slice(0, 400) ?? "No description"}
+
+Tip (max 100 chars):`;
+
+    /** Strip tool name mentions and "Use this tool" cruft anywhere in the text */
+    function cleanTip(raw: string, toolName: string): string {
+      let tip = raw;
+      const n = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // "Use 'toolname' when/to/for/..." at start
+      tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"]\\s+(when|to|for|in|as|with)\\s+`, 'i'),
+        (_: string, w: string) => w.charAt(0).toUpperCase() + w.slice(1) + " ");
+      tip = tip.replace(new RegExp(`^Use\\s+['\`"]${n}['\`"][,\\s]*`, 'i'), "");
+
+      // ", use 'toolname' to/..." mid-sentence
+      tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'gi'),
+        (_: string, p: string, w: string) => p + " " + w + " ");
+      tip = tip.replace(new RegExp(`([,;])\\s*use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), "$1 ");
+
+      // ". Use 'toolname' to/..." after period
+      tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"]\\s+(to|for|as|when|in|with)\\s+`, 'g'),
+        (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
+      tip = tip.replace(new RegExp(`\\.\\s*Use\\s+['\`"]${n}['\`"][.,]?\\s*`, 'gi'), ". ");
+
+      // "Use this tool to/when/..." (generic)
+      tip = tip.replace(/[,;]\s*Use this tool\s+(to|for|as|when)\s+/gi,
+        (_: string, w: string) => ", " + w + " ");
+      tip = tip.replace(/\.\s*Use this tool\s+(to|for|as|when)\s+/g,
+        (_: string, w: string) => ". " + w.charAt(0).toUpperCase() + w.slice(1) + " ");
+
+      // Cleanup: collapse whitespace
+      tip = tip.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim();
+      // Capitalize first letter
+      if (tip.length > 0) tip = tip.charAt(0).toUpperCase() + tip.slice(1);
+      return tip;
+    }
+
+    let generated = 0;
+    let failed = 0;
+
+    for (let i = 0; i < tools.length; i++) {
+      const t = tools[i];
+      process.stdout.write(`  [${i + 1}/${tools.length}] "${t.name}" ... `);
+
+      try {
+        const res = await fetch(`${host}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            messages: [{ role: "user", content: tipPrompt(t) }],
+            options: { temperature: 0.1, num_predict: 128, top_k: 20, top_p: 0.9 },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!res.ok) {
+          console.log(`FAIL (HTTP ${res.status})`);
+          failed++;
+          continue;
+        }
+
+        const data = (await res.json()) as { message?: { content?: string } };
+        const raw = (data.message?.content ?? "").trim()
+          .replace(/^["']|["']$/g, "")   // strip quotes
+          .replace(/^Tip:\s*/i, "");     // strip "Tip:" prefix
+
+        const cleaned = cleanTip(raw, t.name);
+
+        // Truncate at last word boundary within 120 chars (no mid-word cut)
+        const tip = cleaned.length > 120
+          ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 60 ? s.slice(0, sp) : s; })()
+          : cleaned;
+        if (!tip) {
+          console.log("SKIP (empty response)");
+          failed++;
+          continue;
+        }
+
+        existingTips[t.name] = tip;
+        console.log(`"${tip}"`);
+        generated++;
+        await keepOllamaAlive();  // reset idle timer
+      } catch (err) {
+        console.log(`FAIL (${err instanceof Error ? err.message : String(err)})`);
+        failed++;
+      }
+    }
+
+    // Save to file
+    const sorted: Record<string, string> = {};
+    for (const key of Object.keys(existingTips).sort()) {
+      sorted[key] = existingTips[key];
+    }
+    await writeFile(tipsPath, JSON.stringify(sorted, null, 2), "utf-8");
+
+    console.log(`\n[OK] ${generated} tip(s) generated, ${failed} failed`);
+    console.log(`[OK] Saved to ${tipsPath}`);
+    console.log("[INFO] Run 'lightmcp build-catalog' to rebuild the catalog with tips.\n");
+
+    await stopOllama();
+  });
+
 // ── Default: treat unknown args as "call <tool> [args...]" ─
 // Antigravity may run: lightmcp kicad search_footprints --query "x"
 program.action(async (...args: string[]) => {
@@ -539,7 +744,11 @@ program.action(async (...args: string[]) => {
     if (data.error) { console.error(JSON.stringify(data.error)); process.exit(1); }
     const content = data.result?.content;
     if (Array.isArray(content)) {
-      for (const block of content) { if (block.type === "text") process.stdout.write(block.text + "\n"); }
+      for (const block of content) {
+        if (block.type === "text" && block.text) process.stdout.write(block.text);
+        else if (block.type === "image" && block.data) process.stdout.write(block.data);
+      }
+      process.stdout.write("\n");
     } else {
       process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
     }

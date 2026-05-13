@@ -3,7 +3,8 @@
 // Connects to each MCP server and collects tool definitions.
 // ============================================================
 import { spawn, execSync, type ChildProcess } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { loadMcpConfig, resolveMcpConfigPath, loadConfig } from "../config.js";
 import type {
@@ -254,7 +255,32 @@ async function queryToolsViaHttp(
 
 function shortDesc(desc: string | undefined): string {
   if (!desc) return "";
-  return desc.length > 100 ? desc.slice(0, 97) + "…" : desc;
+  if (desc.length > 250) {
+    const sliced = desc.slice(0, 247);
+    const lastSpace = sliced.lastIndexOf(" ");
+    return (lastSpace > 200 ? sliced.slice(0, lastSpace) : sliced) + "…";
+  }
+  return desc;
+}
+
+/** Load tool_tips.json (tool name → procedural tip map) */
+async function loadToolTips(): Promise<Record<string, string>> {
+  const tipsPath = path.resolve(process.cwd(), "tool_tips.json");
+  if (!existsSync(tipsPath)) return {};
+  try {
+    const raw = await readFile(tipsPath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const tips: Record<string, string> = {};
+    for (const [key, val] of Object.entries(parsed)) {
+      if (typeof val === "string" && val.trim()) {
+        tips[key] = val.trim();
+      }
+    }
+    return tips;
+  } catch {
+    console.warn("  [warn] Failed to parse tool_tips.json — skipping tips");
+    return {};
+  }
 }
 
 export async function buildCatalog(opts: {
@@ -272,6 +298,8 @@ export async function buildCatalog(opts: {
     `\n[INFO] Building catalog from: ${mcpConfigPath}` +
     (activeOnly ? " [active-only]" : " [all tools]")
   );
+
+  const toolTips = await loadToolTips();
 
   for (const [key, serverCfg] of Object.entries(mcpConfig.mcpServers)) {
     if (key === "lightmcp") {
@@ -308,6 +336,7 @@ export async function buildCatalog(opts: {
         description: t.description ?? "",
         inputSchema: t.inputSchema ?? {},
         shortDesc: shortDesc(t.description),
+        tip: toolTips[t.name],
       });
       added++;
     }

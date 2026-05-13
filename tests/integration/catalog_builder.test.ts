@@ -124,7 +124,7 @@ describe('catalog builder', () => {
     expect(catalog.tools).toHaveLength(2);
   });
 
-  it('should truncate long descriptions to 100 chars', async () => {
+  it('should truncate long descriptions to 250 chars', async () => {
     vi.mocked(config.loadMcpConfig).mockResolvedValue({
       mcpServers: {
         http_server: { serverUrl: 'http://remote/mcp' }
@@ -135,14 +135,14 @@ describe('catalog builder', () => {
       // http_server: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([
-        { name: 'tool1', description: 'A'.repeat(200) },
+        { name: 'tool1', description: 'A'.repeat(300) },
       ]));
 
     const catalog = await buildCatalog();
 
-    expect(catalog.tools[0].shortDesc.length).toBeLessThanOrEqual(100);
+    expect(catalog.tools[0].shortDesc.length).toBeLessThanOrEqual(250);
     expect(catalog.tools[0].shortDesc).toContain('…');
-    expect(catalog.tools[0].description).toBe('A'.repeat(200));
+    expect(catalog.tools[0].description).toBe('A'.repeat(300));
   });
 
   it('should handle server with no command and no serverUrl', async () => {

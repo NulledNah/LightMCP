@@ -207,3 +207,9 @@ export async function ensureModelPulled(): Promise<void> {
 export function getOllamaState(): OllamaState {
   return _state;
 }
+
+/** Reset the idle timer without pinging — keeps Ollama alive during long batch operations */
+export async function keepOllamaAlive(): Promise<void> {
+  const cfg = await loadConfig();
+  resetIdleTimer(cfg.ollama.idleTimeoutSeconds);
+}

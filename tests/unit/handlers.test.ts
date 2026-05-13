@@ -139,4 +139,20 @@ describe('handlers.ts', () => {
     expect(parsed.tools).toHaveLength(0);
     expect(parsed.selected).toBe(0);
   });
+
+  it('should include tip in response when tool has tip', async () => {
+    const mockCatalog = [
+      { name: 'tool_a', description: 'desc', serverKey: 's1', serverTransport: 'stdio', inputSchema: {}, shortDesc: 'Tool A', tip: 'Use for X before Y' }
+    ] as any;
+
+    vi.mocked(loader.getCatalogTools).mockResolvedValue(mockCatalog);
+    vi.mocked(manager.ensureOllamaReady).mockResolvedValue();
+    vi.mocked(client.selectTools).mockResolvedValue(['tool_a']);
+
+    const res = await handleGetTools({ task: 'do X' });
+    const parsed = JSON.parse(res.content[0].text);
+
+    expect(parsed.tools).toHaveLength(1);
+    expect(parsed.tools[0].tip).toBe('Use for X before Y');
+  });
 });
