@@ -195,33 +195,64 @@ program
     const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
     const hints = opts.hints ? opts.hints.split(",").map((h) => h.trim()) : [];
 
-    // Try HTTP server first (ensures tools get registered on McpServer)
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
-        body: JSON.stringify({
-          jsonrpc: "2.0", id: 1, method: "tools/call",
-          params: { name: "get_task_tools", arguments: { task, hints } },
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
+    let serverStarted = false;
 
-      if (res.ok) {
-        const data = (await res.json()) as { result?: { content?: { type: string; text: string }[] } };
-        const text = (data.result as any)?.content?.[0]?.text;
-        if (text) {
-          const result = JSON.parse(text);
-          for (const t of result.tools ?? []) {
-            console.log(`${t.name} [${t.serverKey}] ${t.description}`);
-            if (t.usage) console.log(`  Usage: ${t.usage}`);
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+          body: JSON.stringify({
+            jsonrpc: "2.0", id: 1, method: "tools/call",
+            params: { name: "get_task_tools", arguments: { task, hints } },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as { result?: { content?: { type: string; text: string }[] } };
+          const text = (data.result as any)?.content?.[0]?.text;
+          if (text) {
+            const result = JSON.parse(text);
+            for (const t of result.tools ?? []) {
+              console.log(`${t.name} [${t.serverKey}] ${t.description}`);
+              if (t.usage) console.log(`  Usage: ${t.usage}`);
+            }
+            console.log(`\n${result.selected ?? result.tools?.length ?? 0}/${result.total ?? "?"} tools selected — ready to call`);
+            return;
           }
-          console.log(`\n${result.selected ?? result.tools?.length ?? 0}/${result.total ?? "?"} tools selected — ready to call`);
-          return;
         }
+        // Server responded but with non-ok status or unexpected format — try local
+        break;
+      } catch (err: unknown) {
+        const msg = (err as NodeJS.ErrnoException)?.code ?? "";
+        if (msg === "ECONNREFUSED" && attempt < 3) {
+          if (!serverStarted) {
+            serverStarted = true;
+            const { spawn } = await import("node:child_process");
+            const { fileURLToPath } = await import("node:url");
+            const pathMod = await import("node:path");
+            const cliPath = pathMod.resolve(
+              pathMod.dirname(fileURLToPath(import.meta.url)),
+              "index.js"
+            );
+            spawn("node", [cliPath, "start"], {
+              detached: false,
+              stdio: "ignore",
+              shell: process.platform === "win32",
+              windowsHide: true,
+            });
+            if (process.env.LIGHTMCP_VERBOSE) {
+              console.error("[get-tools] Server unreachable — starting LightMCP...");
+            }
+          }
+          // Wait for server to start, then retry
+          await new Promise((r) => setTimeout(r, 3_000));
+          continue;
+        }
+        // Other error — fall through to local mode
+        break;
       }
-    } catch {
-      // Server not running — fall through to local mode
     }
 
     // Fallback: local Ollama selection (tools won't be registered on McpServer)
