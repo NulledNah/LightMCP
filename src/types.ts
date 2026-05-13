@@ -39,6 +39,7 @@ export interface LightMCPConfig {
   server: {
     port: number;
     host: string;
+    idleTimeoutSeconds: number;
   };
   ollama: {
     host: string;

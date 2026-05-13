@@ -22,6 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
+let _lastActivity: number = Date.now();
 
 // Track registered tool info for compatibility tools/list handler
 const _toolList: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
@@ -74,6 +75,14 @@ export async function createMcpServer(): Promise<express.Application> {
       if (!req.headers["accept"]) {
         req.headers["accept"] = "application/json, text/event-stream";
       }
+    }
+    next();
+  });
+
+  // Track server activity for idle timeout
+  app.use((req, _res, next) => {
+    if (req.path === "/mcp" && req.method === "POST") {
+      _lastActivity = Date.now();
     }
     next();
   });
@@ -233,20 +242,26 @@ export async function createMcpServer(): Promise<express.Application> {
 
 export async function startServer(): Promise<void> {
   const cfg = await loadConfig();
-  const { port, host } = cfg.server;
+  const { port, host, idleTimeoutSeconds } = cfg.server;
 
   const app = await createMcpServer();
 
   await new Promise<void>((resolve, reject) => {
     const httpServer = app.listen(port, host, () => {
       console.log(`\n[INFO] LightMCP Router running at http://${host}:${port}/mcp`);
-      console.log(`   Health: http://${host}:${port}/health\n`);
+      console.log(`   Health: http://${host}:${port}/health`);
+      if (idleTimeoutSeconds > 0) {
+        console.log(`   Idle timeout: ${idleTimeoutSeconds}s\n`);
+      } else {
+        console.log("");
+      }
       resolve();
     });
     httpServer.on("error", reject);
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
+      if (_idleInterval) clearInterval(_idleInterval);
       console.log(`\n${signal} received — shutting down…`);
       const { stopOllama } = await import("../ollama/manager.js");
       const { stopCatalogWatcher } = await import("../catalog/watcher.js");
@@ -261,5 +276,16 @@ export async function startServer(): Promise<void> {
 
     process.on("SIGINT", () => void shutdown("SIGINT"));
     process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
+    // ── Server idle timeout (auto-shutdown) ────────────────
+    let _idleInterval: NodeJS.Timeout | null = null;
+    if (idleTimeoutSeconds > 0) {
+      _idleInterval = setInterval(() => {
+        const elapsed = (Date.now() - _lastActivity) / 1_000;
+        if (elapsed >= idleTimeoutSeconds) {
+          shutdown("IDLE");
+        }
+      }, 10_000); // check every 10s
+    }
   });
 }

@@ -206,7 +206,8 @@ Edit `lightmcp_config.json` in the project root:
 {
   "server": {
     "port": 3131,
-    "host": "127.0.0.1"
+    "host": "127.0.0.1",
+    "idleTimeoutSeconds": 0
   },
   "ollama": {
     "host": "http://127.0.0.1:11434",
@@ -228,6 +229,7 @@ Edit `lightmcp_config.json` in the project root:
 |---------|---------|-------------|
 | `server.port` | `3131` | Port for the MCP HTTP server |
 | `server.host` | `127.0.0.1` | Host to bind the server |
+| `server.idleTimeoutSeconds` | `0` (disabled) | Seconds before server auto-shuts down. Set to e.g. `300` to shut down after 5 min idle |
 | `ollama.host` | `http://127.0.0.1:11434` | Ollama API URL |
 | `ollama.model` | `qwen2.5-coder:7b-instruct` | Ollama model for tool selection |
 | `ollama.idleTimeoutSeconds` | `120` | Seconds before Ollama is shut down |

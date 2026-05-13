@@ -21,7 +21,7 @@ describe('config.ts', () => {
 
   describe('loadConfig', () => {
     const validConfig: LightMCPConfig = {
-      server: { port: 3000, host: '127.0.0.1' },
+      server: { port: 3000, host: '127.0.0.1', idleTimeoutSeconds: 0 },
       ollama: {
         host: 'http://127.0.0.1:11434',
         model: 'test-model',

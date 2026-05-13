@@ -15,6 +15,7 @@ const LightMCPConfigSchema = z.object({
   server: z.object({
     port: z.number().int().min(1).max(65535).default(3131),
     host: z.string().default("127.0.0.1"),
+    idleTimeoutSeconds: z.number().int().min(0).default(0),
   }),
   ollama: z.object({
     host: z.string().default("http://127.0.0.1:11434"),
