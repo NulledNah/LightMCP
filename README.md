@@ -17,7 +17,7 @@ MCP-compatible agents (like Antigravity) have a hard limit of **100 tools** acro
 LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`get_task_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them — LightMCP transparently forwards each call to the real downstream MCP server.
 
 ```
-Agent → lightmcp_get_tools("create a KiCad footprint") → [create_footprint, ...]
+Agent → get_task_tools("create a KiCad footprint") → [create_footprint, ...]
 Agent → tools/list → [create_footprint, get_footprint_info, ...]  (dynamically registered)
 Agent → tools/call("create_footprint", {...}) → LightMCP → KiCad MCP → result
 ```
@@ -64,18 +64,29 @@ lightmcp start
 ```
 
 `lightmcp setup` now handles everything automatically:
-1. Installs Ollama (if missing)
+1. Checks for Ollama and prints install instructions if missing
 2. Pulls the configured model
 3. Builds the tool catalog from all downstream MCP servers
 4. Generates procedural usage tips for every tool via the local LLM
 5. Scans for AI agents and lets you choose which to configure
-6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`)
+6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`) if Antigravity is selected
 7. Registers Windows startup via Task Scheduler
 
 ### Manual steps (if needed)
 
-If you skipped agent configuration during setup, add LightMCP to your agent's `mcp_config.json` (e.g. Antigravity's `%USERPROFILE%\.gemini\antigravity\mcp_config.json`):
+If you skipped agent configuration during setup, add LightMCP to your agent's `mcp_config.json`. For Antigravity (stdio bridge):
+```json
+{
+  "mcpServers": {
+    "lightmcp": {
+      "command": "node",
+      "args": ["C:\\Users\\<username>\\Desktop\\Repos\\LightMCP\\dist\\server\\bridge.js"]
+    }
+  }
+}
+```
 
+For agents that support HTTP (Claude Code, Cursor, openCode):
 ```json
 {
   "mcpServers": {
@@ -113,9 +124,9 @@ sequenceDiagram
     participant D as Downstream MCP
 
     A->>L: tools/list
-    L-->>A: [lightmcp_get_tools]
+    L-->>A: [get_task_tools]
 
-    A->>L: tools/call("lightmcp_get_tools", task)
+    A->>L: tools/call("get_task_tools", {task})
     L->>O: Select relevant tools
     O-->>L: [create_footprint, list_libraries]
     L-->>A: Selected tools summary
@@ -142,7 +153,7 @@ flowchart TB
 
     subgraph LightMCP["LightMCP (localhost:3131)"]
         direction TB
-        L1["lightmcp_get_tools<br/>Ollama semantic selection"]
+        L1["get_task_tools<br/>Ollama semantic selection"]
         L2["Dynamic tool registration<br/>on McpServer singleton"]
         L3["Proxy pool<br/>forward tools/call"]
         L4["Tool catalog<br/>auto-built from all servers"]
@@ -225,7 +236,7 @@ Edit `lightmcp_config.json` in the project root:
 | `catalog.activeOnly` | `false` | Only include tools from enabled servers |
 | `catalog.outputPath` | `tool_catalog.json` | Where to persist the tool catalog |
 | `catalog.watchMcpConfig` | `true` | Auto-rebuild catalog on config changes |
-| `mcpConfigPath` | auto | Override path to the MCP config listing all servers |
+| `mcpConfigPath` | null (auto-detected) | Override path to the MCP config listing all servers |
 
 ---
 
@@ -245,9 +256,10 @@ Detected agents and their MCP config paths:
 
 | Agent | Config Path |
 |-------|------------|
-| Antigravity | `~/.gemini/antigravity/mcp_config.json` |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` |
 | Claude Code | `~/.claude.json` |
 | openCode CLI | `~/.opencode.json` |
+| openCode Desktop | `%APPDATA%\ai.opencode.desktop\opencode.global.dat` |
 | Cursor | `~/.cursor/mcp.json` |
 
 ---
@@ -261,9 +273,8 @@ Once running, your agent connects only to LightMCP. Here's a real tested flow fr
 2. Domain-aware pre-filter: 173 tools → 3 Fusion tools
 3. Ollama selects: fusion_mcp_execute, fusion_mcp_read
 4. LightMCP dynamically registers these 2 tools on its MCP server
-5. Agent writes Python script → creates args.json with --file flag
-6. Agent calls fusion_mcp_execute --file args.json → cube created
-7. Agent calls fusion_mcp_read --file read_args.json --output screenshot.png → visual verify
+5. Agent calls fusion_mcp_execute via tools/call with Python script arguments
+6. Agent calls fusion_mcp_read via tools/call → 1 body verified in active document
 ```
 
 More examples:
@@ -275,7 +286,7 @@ lightmcp call create_footprint --name "JST-SH" --library "Connectors"
 lightmcp get-tools "debug performance of my landing page"
 lightmcp call navigate_page --url "https://mysite.com"
 lightmcp call performance_start_trace --reload true
-lightmcp take_screenshot --output landing.png
+lightmcp call take_screenshot --output landing.png
 ```
 
 The agent never sees the 137 KiCad tools — only the relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
@@ -332,8 +343,15 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
 
 To install manually:
 ```powershell
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini"
-Copy-Item scripts\antigravity_rule.md "$env:USERPROFILE\.gemini\GEMINI.md"
+$template = Get-Content scripts\antigravity_rule.md -Raw
+$geminiMd = "$env:USERPROFILE\.gemini\GEMINI.md"
+if (Test-Path $geminiMd) {
+  $existing = Get-Content $geminiMd -Raw
+  Set-Content $geminiMd ($template.Trim() + "`n`n" + $existing.Trim()) -Encoding utf8
+} else {
+  New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini" | Out-Null
+  Copy-Item scripts\antigravity_rule.md $geminiMd
+}
 ```
 
 If `~/.gemini/GEMINI.md` already exists, the template is prepended to preserve your existing rules.
