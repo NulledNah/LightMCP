@@ -381,24 +381,36 @@ program
       ollamaInstalled = true;
       console.log("[OK] Ollama already installed");
     } catch {
-      console.log("[INFO] Ollama not found. Running installer...");
+      console.log("[INFO] Ollama not found. Installing...");
     }
 
     if (!ollamaInstalled) {
       if (osMod.default.platform() === "win32") {
-        const scriptPath = path.resolve(__dirname, "../../scripts/setup.ps1");
-        if (existsSync(scriptPath)) {
-          console.log(
-            "  Please run the following command in an elevated PowerShell:\n"
+        try {
+          execSync("winget --version", { stdio: "ignore" });
+          console.log("  Installing Ollama via winget...");
+          execSync(
+            "winget install --id Ollama.Ollama --silent --accept-package-agreements --accept-source-agreements",
+            { stdio: "inherit" }
           );
+          // Refresh PATH for this process
+          process.env.PATH = (process.env.PATH ?? "") + ";" +
+            (process.env.LOCALAPPDATA ?? "") + "\\Programs\\Ollama";
+          console.log("[OK] Ollama installed");
+          ollamaInstalled = true;
+        } catch {
           console.log(
-            `  powershell -ExecutionPolicy Bypass -File "${scriptPath}"\n`
+            "  [WARN] Could not install Ollama automatically.\n" +
+            "  Download from: https://ollama.com/download/windows"
           );
-        } else {
-          console.log(
-            "  Download Ollama from: https://ollama.com/download/windows\n"
-          );
+          console.log("  After installation, re-run: lightmcp setup");
+          process.exit(0);
         }
+      } else {
+        console.log(
+          "  [INFO] Please install Ollama manually:\n" +
+          "  Linux/macOS: curl -fsSL https://ollama.com/install.sh | sh"
+        );
         console.log("  After installation, re-run: lightmcp setup");
         process.exit(0);
       }

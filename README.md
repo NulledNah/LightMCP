@@ -279,10 +279,17 @@ Once running, your agent connects only to LightMCP. Here's a real tested flow fr
 
 More examples:
 ```
+# KiCad workflow
 lightmcp get-tools "create a KiCad footprint for a JST-SH connector"
 lightmcp call search_footprints --search_term "JST-SH"
 lightmcp call create_footprint --name "JST-SH" --library "Connectors"
 
+# Fusion 360 workflow with --file for complex args
+lightmcp get-tools "generate a 10mm cube in Autodesk Fusion"
+lightmcp call fusion_mcp_execute --file args.json
+lightmcp call fusion_mcp_read --file read_args.json --output screenshot.png
+
+# Chrome DevTools workflow
 lightmcp get-tools "debug performance of my landing page"
 lightmcp call navigate_page --url "https://mysite.com"
 lightmcp call performance_start_trace --reload true
