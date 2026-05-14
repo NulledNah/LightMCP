@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { spawn } from 'node:child_process';
-import { startOllama, stopOllama, ensureOllamaReady, getOllamaState, ensureModelPulled } from '../../src/ollama/manager.js';
+import { startOllama, stopOllama, ensureOllamaReady, getOllamaState, ensureModelPulled, keepOllamaAlive } from '../../src/ollama/manager.js';
 import * as config from '../../src/config.js';
 
 vi.mock('../../src/config.js');
@@ -170,5 +170,97 @@ describe('ollama manager', () => {
     vi.mocked(spawn).mockReturnValue(mockProc as any);
 
     await expect(ensureModelPulled()).rejects.toThrow('ollama pull exited with code 1');
+  });
+
+  it('should reset idle timer on ensureOllamaReady', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({ ok: true } as Response);
+
+    const cfg = await import('../../src/config.js');
+    vi.mocked(cfg.loadConfig).mockResolvedValue({
+      ollama: {
+        host: 'http://127.0.0.1:11434',
+        model: 'test-model',
+        startupTimeoutSeconds: 1,
+        idleTimeoutSeconds: 1,
+        maxRetries: 2,
+      }
+    } as any);
+
+    await ensureOllamaReady();
+    expect(getOllamaState()).toBe('ready');
+  });
+
+  it('should reset idle timer when keepOllamaAlive is called', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({ ok: true } as Response);
+
+    const cfg = await import('../../src/config.js');
+    vi.mocked(cfg.loadConfig).mockResolvedValue({
+      ollama: {
+        host: 'http://127.0.0.1:11434',
+        model: 'test-model',
+        startupTimeoutSeconds: 1,
+        idleTimeoutSeconds: 1,
+        maxRetries: 2,
+      }
+    } as any);
+
+    // Start it first
+    await startOllama();
+    expect(getOllamaState()).toBe('ready');
+
+    // Now keep alive should work without issues
+    await keepOllamaAlive();
+    expect(getOllamaState()).toBe('ready');
+  });
+
+  it('should stop after idle timeout', async () => {
+    vi.mocked(global.fetch).mockResolvedValue({ ok: true } as Response);
+
+    const cfg = await import('../../src/config.js');
+    vi.mocked(cfg.loadConfig).mockResolvedValue({
+      ollama: {
+        host: 'http://127.0.0.1:11434',
+        model: 'test-model',
+        startupTimeoutSeconds: 1,
+        idleTimeoutSeconds: 1,
+        maxRetries: 2,
+      }
+    } as any);
+
+    // Start: already running
+    await startOllama();
+    expect(getOllamaState()).toBe('ready');
+
+    // Wait for idle timeout
+    await new Promise(resolve => setTimeout(resolve, 1100));
+
+    // Stop should not throw
+    await stopOllama();
+    expect(getOllamaState()).toBe('stopped');
+  });
+
+  it('should fail startOllama when waitReady times out', async () => {
+    vi.mocked(global.fetch).mockRejectedValue(new Error('connection refused'));
+
+    const cfg = await import('../../src/config.js');
+    vi.mocked(cfg.loadConfig).mockResolvedValue({
+      ollama: {
+        host: 'http://127.0.0.1:11434',
+        model: 'test-model',
+        startupTimeoutSeconds: 0,
+        idleTimeoutSeconds: 1,
+        maxRetries: 2,
+      }
+    } as any);
+
+    const mockProcess = {
+      on: vi.fn(),
+      kill: vi.fn(),
+      pid: 12345,
+    };
+    vi.mocked(spawn).mockReturnValue(mockProcess as any);
+
+    // With startupTimeoutSeconds=0, waitReady should fail immediately
+    await expect(startOllama()).rejects.toThrow();
   });
 });

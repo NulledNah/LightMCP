@@ -32,6 +32,7 @@ export type GetToolsInput = z.infer<typeof GetToolsInputSchema>;
 
 let _registeredTools: RegisteredTool[] = [];
 let _lastTrackedNames: string[] = [];
+let _registrationLock: Promise<void> = Promise.resolve();
 
 /** Loose input schema for proxied tools — accepts any object. */
 const PassthroughSchema = z.object({}).passthrough();
@@ -92,6 +93,10 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
 
   // 5. Dynamically register selected tools on the McpServer
   //    so the agent can call them through LightMCP.
+  const previousLock = _registrationLock;
+  let releaseLock: () => void;
+  _registrationLock = new Promise<void>((r) => { releaseLock = r; });
+  await previousLock;
   try {
     const { getMcpServer, trackTool, untrackTool } = await import("./mcp_server.js");
     const { callTool } = await import("./proxy.js");
@@ -136,6 +141,8 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     }
   } catch (err) {
     console.error("Failed to register tools on McpServer:", err);
+  } finally {
+    releaseLock!();
   }
 
   // 6. Return summary as text content

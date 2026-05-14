@@ -16,6 +16,7 @@ interface ServerConnection {
 }
 
 const _pool = new Map<string, ServerConnection>();
+const _connectPromises = new Map<string, Promise<ServerConnection>>();
 
 async function getMcpConfig(): Promise<Record<string, MCPServerConfig>> {
   const cfg = await loadConfig();
@@ -24,7 +25,7 @@ async function getMcpConfig(): Promise<Record<string, MCPServerConfig>> {
   return mcpConfig.mcpServers;
 }
 
-async function connectServer(serverKey: string): Promise<ServerConnection> {
+async function doConnectServer(serverKey: string): Promise<ServerConnection> {
   const servers = await getMcpConfig();
   const serverCfg = servers[serverKey];
 
@@ -62,6 +63,15 @@ async function connectServer(serverKey: string): Promise<ServerConnection> {
   const conn: ServerConnection = { client, transport, connected: true };
   _pool.set(serverKey, conn);
   return conn;
+}
+
+async function connectServer(serverKey: string): Promise<ServerConnection> {
+  const ongoing = _connectPromises.get(serverKey);
+  if (ongoing) return ongoing;
+  const promise = doConnectServer(serverKey);
+  _connectPromises.set(serverKey, promise);
+  try { return await promise; }
+  finally { _connectPromises.delete(serverKey); }
 }
 
 async function getConnection(serverKey: string): Promise<ServerConnection> {
