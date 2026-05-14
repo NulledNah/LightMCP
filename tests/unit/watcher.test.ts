@@ -33,7 +33,7 @@ describe('catalog watcher', () => {
       mcpConfigPath: null,
     } as any);
 
-    vi.mocked(config.resolveMcpConfigPath).mockResolvedValue('/fake/mcp_config.json');
+    vi.mocked(config.resolveWatchPaths).mockResolvedValue(['/fake/mcp_config.json']);
     vi.mocked(builder.buildCatalog).mockResolvedValue({
       version: 1 as const,
       builtAt: new Date().toISOString(),

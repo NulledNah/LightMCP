@@ -1,7 +1,7 @@
 // ============================================================
 // LightMCP — Config Loader
 // ============================================================
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -147,6 +147,77 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
   // 5. Empty — no servers found anywhere
   console.warn("[WARN] No MCP servers found. Create a lightmcp_config.json with 'mcpServers' or install an AI agent.");
   return {};
+}
+
+/**
+ * Auto-populates lightmcp_config.json with discovered agent paths and servers.
+ * Called after buildCatalog() to keep the config in sync with reality.
+ */
+export async function autoPopulateConfig(discoveredServers: Record<string, import("./types.js").MCPServerConfig>): Promise<void> {
+  const cfg = await loadConfig();
+  const paths: string[] = [];
+
+  // Collect paths from auto-detected agents
+  try {
+    const { detectAgents } = await import("./setup/scanner.js");
+    const agents = detectAgents();
+    for (const agent of agents) {
+      if (agent.configExists && agent.configPath) {
+        paths.push(agent.configPath);
+      }
+    }
+  } catch { /* scanner not available */ }
+
+  // Merge with user-specified path
+  if (cfg.mcpConfigPath) {
+    paths.unshift(cfg.mcpConfigPath);
+  }
+
+  // Merge discovered servers with inline servers
+  const mergedServers = { ...cfg.mcpServers, ...discoveredServers };
+
+  // Write updated config back to disk
+  const configPath = resolveConfigPath();
+  const updated = {
+    ...cfg,
+    mcpConfigPath: paths.length > 0 ? paths.join(path.delimiter) : null,
+    mcpServers: mergedServers,
+  };
+
+  await writeFile(configPath, JSON.stringify(updated, null, 2), "utf-8");
+  // Invalidate cached config so next loadConfig() picks up the changes
+  invalidateConfig();
+  console.log(`  [INFO] Auto-configured ${paths.length} agent path(s), ${Object.keys(mergedServers).length} server(s)`);
+}
+
+/**
+ * Resolves all paths that the watcher should monitor.
+ * Returns deduplicated list of agent config file paths.
+ */
+export async function resolveWatchPaths(): Promise<string[]> {
+  const cfg = await loadConfig();
+  const paths: string[] = [];
+
+  if (cfg.mcpConfigPath) {
+    // Could be a single path or path.delimiter-joined list
+    for (const p of cfg.mcpConfigPath.split(path.delimiter)) {
+      const trimmed = p.trim();
+      if (trimmed && existsSync(trimmed)) paths.push(trimmed);
+    }
+  }
+
+  // Also check auto-detected agents (in case config is stale)
+  try {
+    const { detectAgents } = await import("./setup/scanner.js");
+    const agents = detectAgents();
+    for (const agent of agents) {
+      if (agent.configExists && agent.configPath && !paths.includes(agent.configPath)) {
+        paths.push(agent.configPath);
+      }
+    }
+  } catch { /* scanner not available */ }
+
+  return [...new Set(paths)];
 }
 
 export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {

@@ -364,5 +364,11 @@ export async function buildCatalog(opts: {
   await writeFile(outPath, JSON.stringify(catalog, null, 2), "utf-8");
   console.log(`\n[OK] Catalog saved: ${outPath} (${tools.length} tools)\n`);
 
+  // Auto-update lightmcp_config.json with discovered agent paths
+  try {
+    const { autoPopulateConfig } = await import("../config.js");
+    await autoPopulateConfig(mcpServers);
+  } catch { /* skip if config write fails */ }
+
   return catalog;
 }
