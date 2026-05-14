@@ -174,7 +174,7 @@ export async function autoPopulateConfig(discoveredServers: Record<string, impor
   }
 
   // Merge discovered servers with inline servers
-  const mergedServers = { ...cfg.mcpServers, ...discoveredServers };
+  const mergedServers = { ...discoveredServers, ...cfg.mcpServers };
 
   // Write updated config back to disk
   const configPath = resolveConfigPath();
