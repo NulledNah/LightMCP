@@ -15,5 +15,6 @@
     "outputPath": "tool_catalog.json",
     "watchMcpConfig": true
   },
-  "mcpConfigPath": "C:\\Users\\10293\\.gemini\\antigravity\\lightmcp_servers.json"
+  "mcpConfigPath": null,
+  "mcpServers": {}
 }

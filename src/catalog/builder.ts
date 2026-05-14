@@ -287,21 +287,21 @@ export async function buildCatalog(opts: {
   activeOnly?: boolean;
 } = {}): Promise<ToolCatalog> {
   const cfg = await loadConfig();
-  const mcpConfigPath = await resolveMcpConfigPath(cfg);
-  const mcpConfig = await loadMcpConfig(mcpConfigPath);
+  const { resolveMcpServers } = await import("../config.js");
+  const mcpServers = await resolveMcpServers();
 
   const activeOnly = opts.activeOnly ?? cfg.catalog.activeOnly;
   const tools: ToolEntry[] = [];
   const servers: CatalogServer[] = [];
 
   console.log(
-    `\n[INFO] Building catalog from: ${mcpConfigPath}` +
+    `\n[INFO] Building catalog` +
     (activeOnly ? " [active-only]" : " [all tools]")
   );
 
   const toolTips = await loadToolTips();
 
-  for (const [key, serverCfg] of Object.entries(mcpConfig.mcpServers)) {
+  for (const [key, serverCfg] of Object.entries(mcpServers)) {
     if (key === "lightmcp") {
       console.log(`  [SKIP] ${key} - skipped (prevent self-loop)`);
       continue;

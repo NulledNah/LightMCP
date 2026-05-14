@@ -20,7 +20,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
 describe('catalog builder', () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    
+
     vi.mocked(config.loadConfig).mockResolvedValue({
       catalog: {
         outputPath: 'dummy.json',
@@ -29,7 +29,7 @@ describe('catalog builder', () => {
       }
     } as any);
 
-    vi.mocked(config.resolveMcpConfigPath).mockResolvedValue('mcp_config.json');
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({});
     global.fetch = vi.fn();
   });
 
@@ -41,16 +41,13 @@ describe('catalog builder', () => {
   }) as any;
 
   it('should build catalog skipping lightmcp and disabled tools', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        lightmcp: { serverUrl: 'http://loc' },
-        disabled_server: { command: 'node', disabled: true },
-        http_server: { serverUrl: 'http://remote/mcp' }
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      lightmcp: { serverUrl: 'http://loc' },
+      disabled_server: { command: 'node', disabled: true },
+      http_server: { serverUrl: 'http://remote/mcp' }
     } as any);
 
     vi.mocked(global.fetch)
-      // http_server: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([
         { name: 'remote_tool', description: 'a tool' }
@@ -60,17 +57,13 @@ describe('catalog builder', () => {
 
     expect(catalog.tools).toHaveLength(1);
     expect(catalog.tools[0].name).toBe('remote_tool');
-    expect(catalog.servers).toHaveLength(1); // disabled_server skipped entirely
-
-    // Should have written to file
+    expect(catalog.servers).toHaveLength(1);
     expect(fsPromises.writeFile).toHaveBeenCalled();
   });
 
   it('should handle fetch errors gracefully', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        http_server: { serverUrl: 'http://bad/mcp' }
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      http_server: { serverUrl: 'http://bad/mcp' }
     } as any);
 
     vi.mocked(global.fetch).mockRejectedValue(new Error('Network error'));
@@ -81,10 +74,8 @@ describe('catalog builder', () => {
   });
 
   it('should not filter out disabledTools (LightMCP catalogs all tools)', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        http_server: { serverUrl: 'http://remote/mcp', disabledTools: ['unwanted_tool'] }
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      http_server: { serverUrl: 'http://remote/mcp', disabledTools: ['unwanted_tool'] }
     } as any);
 
     vi.mocked(global.fetch)
@@ -96,60 +87,47 @@ describe('catalog builder', () => {
       ]));
 
     const catalog = await buildCatalog();
-
-    // LightMCP catalogs ALL tools regardless of disabledTools in agent config
     expect(catalog.tools).toHaveLength(3);
     expect(catalog.tools.map(t => t.name)).toEqual(['good_tool', 'unwanted_tool', 'another_good']);
   });
 
   it('should include all servers when activeOnly is false', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        s1: { serverUrl: 'http://s1/mcp' },
-        s2: { serverUrl: 'http://s2/mcp', disabled: true },
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      s1: { serverUrl: 'http://s1/mcp' },
+      s2: { serverUrl: 'http://s2/mcp', disabled: true },
     } as any);
 
     vi.mocked(global.fetch)
-      // s1: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([{ name: 't1' }]))
-      // s2: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([{ name: 't2', description: 'tool 2' }]));
 
     const catalog = await buildCatalog({ activeOnly: false });
-
     expect(catalog.servers).toHaveLength(2);
     expect(catalog.tools).toHaveLength(2);
   });
 
   it('should truncate long descriptions to 250 chars', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        http_server: { serverUrl: 'http://remote/mcp' }
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      http_server: { serverUrl: 'http://remote/mcp' }
     } as any);
 
     vi.mocked(global.fetch)
-      // http_server: init + list
       .mockResolvedValueOnce(mockHttpResponse([]))
       .mockResolvedValueOnce(mockHttpResponse([
         { name: 'tool1', description: 'A'.repeat(300) },
       ]));
 
     const catalog = await buildCatalog();
-
     expect(catalog.tools[0].shortDesc.length).toBeLessThanOrEqual(250);
-    expect(catalog.tools[0].shortDesc).toContain('…');
+    expect(catalog.tools[0].shortDesc).toContain('\u2026');
     expect(catalog.tools[0].description).toBe('A'.repeat(300));
   });
 
   it('should handle server with no command and no serverUrl', async () => {
-    vi.mocked(config.loadMcpConfig).mockResolvedValue({
-      mcpServers: {
-        broken: {}
-      }
+    vi.mocked(config.resolveMcpServers).mockResolvedValue({
+      broken: {}
     } as any);
 
     const catalog = await buildCatalog();

@@ -30,6 +30,14 @@ const LightMCPConfigSchema = z.object({
     watchMcpConfig: z.boolean().default(true),
   }),
   mcpConfigPath: z.string().nullable().default(null),
+  mcpServers: z.record(z.object({
+    command: z.string().optional(),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+    serverUrl: z.string().optional(),
+    disabled: z.boolean().optional(),
+    disabledTools: z.array(z.string()).optional(),
+  })).optional().default({}),
 });
 
 function resolveConfigPath(): string {
@@ -86,6 +94,59 @@ export async function resolveMcpConfigPath(cfg: LightMCPConfig): Promise<string>
   throw new Error(
     `Cannot find mcp_config.json. Set "mcpConfigPath" in ${CONFIG_FILENAME}.`
   );
+}
+
+/**
+ * Resolves the full mcpServers map using cascading sources:
+ *  1. $LIGHTMCP_MCP_CONFIG env var → read that file
+ *  2. mcpServers inline in lightmcp_config.json
+ *  3. mcpConfigPath → read agent's mcp_config.json
+ *  4. detectAgents() → read each detected agent's config → merge
+ *  5. Empty fallback (no crash)
+ */
+export async function resolveMcpServers(): Promise<Record<string, import("./types.js").MCPServerConfig>> {
+  const cfg = await loadConfig();
+
+  // 1. Env var override
+  const envPath = process.env.LIGHTMCP_MCP_CONFIG;
+  if (envPath && existsSync(envPath)) {
+    const mcp = await loadMcpConfig(envPath);
+    return mcp.mcpServers;
+  }
+
+  // 2. Inline servers in lightmcp_config.json
+  if (cfg.mcpServers && Object.keys(cfg.mcpServers).length > 0) {
+    return cfg.mcpServers;
+  }
+
+  // 3. Agent's mcp_config.json
+  if (cfg.mcpConfigPath) {
+    try {
+      const mcp = await loadMcpConfig(cfg.mcpConfigPath);
+      return mcp.mcpServers;
+    } catch { /* fall through */ }
+  }
+
+  // 4. Auto-detect agents and merge their configs
+  try {
+    const { detectAgents } = await import("./setup/scanner.js");
+    const agents = detectAgents();
+    const merged: Record<string, import("./types.js").MCPServerConfig> = {};
+
+    for (const agent of agents) {
+      if (!agent.configExists) continue;
+      try {
+        const mcp = await loadMcpConfig(agent.configPath);
+        Object.assign(merged, mcp.mcpServers);
+      } catch { /* skip unreadable configs */ }
+    }
+
+    if (Object.keys(merged).length > 0) return merged;
+  } catch { /* scanner not available or no agents */ }
+
+  // 5. Empty — no servers found anywhere
+  console.warn("[WARN] No MCP servers found. Create a lightmcp_config.json with 'mcpServers' or install an AI agent.");
+  return {};
 }
 
 export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {

@@ -37,13 +37,10 @@ vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn().mockResolvedValue({
     server: { port: 3131, host: '127.0.0.1', idleTimeoutSeconds: 0 },
   }),
-  resolveMcpConfigPath: vi.fn().mockResolvedValue('/path/to/mcp_config.json'),
-  loadMcpConfig: vi.fn().mockResolvedValue({
-    mcpServers: {
-      'http-server': { serverUrl: 'http://localhost:3000/mcp' },
-      'http-server-no-slash': { serverUrl: 'http://localhost:3000' },
-      'stdio-server': { command: 'node', args: ['server.js'], env: { KEY: 'val' } },
-    },
+  resolveMcpServers: vi.fn().mockResolvedValue({
+    'http-server': { serverUrl: 'http://localhost:3000/mcp' },
+    'http-server-no-slash': { serverUrl: 'http://localhost:3000' },
+    'stdio-server': { command: 'node', args: ['server.js'], env: { KEY: 'val' } },
   }),
 }));
 

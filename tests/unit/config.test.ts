@@ -31,6 +31,7 @@ describe('config.ts', () => {
       },
       catalog: { activeOnly: false, watchMcpConfig: false, outputPath: 'catalog.json' },
       mcpConfigPath: null,
+      mcpServers: {},
     };
 
     it('should parse and load config correctly', async () => {

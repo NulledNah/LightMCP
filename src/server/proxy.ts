@@ -6,7 +6,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { loadConfig, resolveMcpConfigPath, loadMcpConfig } from "../config.js";
+import { loadConfig } from "../config.js";
 import type { MCPServerConfig } from "../types.js";
 
 interface ServerConnection {
@@ -19,10 +19,8 @@ const _pool = new Map<string, ServerConnection>();
 const _connectPromises = new Map<string, Promise<ServerConnection>>();
 
 async function getMcpConfig(): Promise<Record<string, MCPServerConfig>> {
-  const cfg = await loadConfig();
-  const mcpConfigPath = await resolveMcpConfigPath(cfg);
-  const mcpConfig = await loadMcpConfig(mcpConfigPath);
-  return mcpConfig.mcpServers;
+  const { resolveMcpServers } = await import("../config.js");
+  return resolveMcpServers();
 }
 
 async function doConnectServer(serverKey: string): Promise<ServerConnection> {
