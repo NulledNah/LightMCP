@@ -16,7 +16,14 @@ export async function startCatalogWatcher(): Promise<void> {
   const cfg = await loadConfig();
   if (!cfg.catalog.watchMcpConfig) return;
 
-  const mcpConfigPath = await resolveMcpConfigPath(cfg);
+  let mcpConfigPath: string;
+  try {
+    mcpConfigPath = await resolveMcpConfigPath(cfg);
+  } catch {
+    // No mcp_config.json found anywhere — nothing to watch
+    console.log("[INFO] No mcp_config.json found — skipping file watcher");
+    return;
+  }
 
   console.log(`[INFO] Watching for changes: ${mcpConfigPath}`);
 
