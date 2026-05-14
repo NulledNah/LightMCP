@@ -102,6 +102,12 @@ describe('ollama client', () => {
     },
   ];
 
+  /** Extract the catalog passed to buildToolSelectionPrompt on the last call */
+  function extractFilteredCatalog(): ToolEntry[] {
+    const calls = vi.mocked(prompts.buildToolSelectionPrompt).mock.calls;
+    return (calls[calls.length - 1]?.[1] ?? []) as ToolEntry[];
+  }
+
   beforeEach(() => {
     vi.resetAllMocks();
 
@@ -357,25 +363,56 @@ describe('ollama client', () => {
       expect(global.fetch).toHaveBeenCalled();
     });
 
-    // BUG tests: confirm known bugs are present and won't regress silently
-    describe('BUG tests — known false positives', () => {
-      it('"kicad" contains "cad" → false positive autodesk-fusion match', async () => {
-        // The string "kicad" contains "cad" which matches autodesk-fusion keywords
-        // This is a known false positive bug
-        const result = await selectTools('help me with kicad', domainCatalog);
-        // Bug: should match only kicad, but will match both kicad and autodesk-fusion
-        expect(result).toEqual(['tool_a']);
+    // Regression tests: word-boundary matching (was substring includes())
+    // These confirm the false-positive bugs from substring matching are fixed.
+    describe('word-boundary matching (regression)', () => {
+      it('"kicad" no longer falsely triggers "cad" → autodesk-fusion', async () => {
+        // Before fix: "kicad" contains "cad" → matched autodesk-fusion
+        // After fix: word-boundary → "cad" not inside "kicad"
+        await selectTools('help me with kicad project', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).not.toContain('autodesk-fusion');
+        expect(servers).toContain('kicad');
       });
 
-      it('"analyze" triggers sequential-thinking (known over-match)', async () => {
-        // "analyze" is a sequential-thinking keyword
-        const result = await selectTools('analyze the pcb layout', domainCatalog);
-        expect(result).toEqual(['tool_a']);
+      it('"analyze" embedded in longer word no longer matches thinking', async () => {
+        // "analyzer" should NOT match \banalyze\b
+        await selectTools('use the analyzer tool for pcb circuit layout', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).not.toContain('sequential-thinking');
+        expect(servers).toContain('kicad');
       });
 
-      it('"google" triggers google-developer-knowledge match', async () => {
-        const result = await selectTools('google something', domainCatalog);
-        expect(result).toEqual(['tool_a']);
+      it('"google" embedded in longer word no longer triggers knowledge', async () => {
+        // "googled" should NOT match \bgoogle\b
+        await selectTools('i googled the css and html page issue', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).not.toContain('google-developer-knowledge');
+        expect(servers).toContain('chrome-devtools-mcp');
+      });
+
+      it('word "cad" alone still matches autodesk-fusion', async () => {
+        await selectTools('design a cad model for 3d printing', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).toContain('autodesk-fusion');
+      });
+
+      it('word "analyze" alone still matches sequential-thinking', async () => {
+        await selectTools('i need to analyze and reason about this problem step by step', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).toContain('sequential-thinking');
+      });
+
+      it('word "google" alone still matches google-developer-knowledge', async () => {
+        await selectTools('search google api documentation for firebase', domainCatalog);
+
+        const servers = [...new Set(extractFilteredCatalog().map((t) => t.serverKey))];
+        expect(servers).toContain('google-developer-knowledge');
       });
     });
   });

@@ -31,7 +31,8 @@ function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   const matched = new Set<string>();
   for (const [server, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
     for (const kw of keywords) {
-      if (lower.includes(kw)) {
+      const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`).test(lower)) {
         matched.add(server);
         break; // one match per server is enough
       }
