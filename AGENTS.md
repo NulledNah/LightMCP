@@ -58,3 +58,16 @@ npx vitest tests/unit/clean_tip.test.ts  # Run a single test file
 - `src/setup/scanner.ts`: Agent detection and MCP configuration
 - `src/ollama/client.ts`: Ollama REST API, domain pre-filtering
 - `src/ollama/manager.ts`: Ollama lifecycle, idle timeout
+
+## CI / Cross-platform
+
+- GitHub Actions: Ubuntu (`ubuntu-latest`) + Windows (`windows-latest`)
+- Both run `npm test` (223 unit + integration tests) at every push/PR to main
+- All tests mock I/O and child processes — they pass identically on both platforms
+
+## Roadmap
+
+| Version | Goal |
+|---------|------|
+| v0.3.0 | 223 tests, CI (Ubuntu + Windows), race condition fixes, word-boundary filter fix |
+| v0.4.0 | Full Linux compatibility (unattended `setup` without winget), README Linux section |

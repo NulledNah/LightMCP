@@ -72,6 +72,36 @@ lightmcp start
 6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`) if Antigravity is selected
 7. Registers Windows startup via Task Scheduler
 
+### Linux / WSL2
+
+LightMCP is fully functional on Linux and WSL2 with the exception of `setup` (which uses `winget` on Windows). On Linux, install prerequisites manually:
+
+```bash
+# Install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen2.5-coder:7b-instruct
+
+# Clone, install, build as usual
+git clone https://github.com/NulledNah/LightMCP.git && cd LightMCP
+npm install && npm run build
+
+# Skip 'lightmcp setup' — use individual commands instead:
+node dist/cli/index.js build-catalog   # build tool catalog
+node dist/cli/index.js start           # start the router
+node dist/cli/index.js status          # verify everything works
+```
+
+| Feature | Linux | WSL2 | Windows |
+|---------|-------|------|---------|
+| `start` / `status` / `test` | ✅ | ✅ | ✅ |
+| `build-catalog` | ✅ | ✅ | ✅ |
+| `call` / `get-tools` | ✅ | ✅ | ✅ |
+| `setup` (auto-install Ollama) | ⚠️ manual | ⚠️ manual | ✅ `winget` |
+| Task Scheduler auto-start | ❌ | ❌ | ✅ |
+| 223 unit/integration tests | ✅ | ✅ | ✅ |
+
+Full Linux compatibility (including unattended `setup`) is planned for v0.4.0.
+
 ### Manual steps (if needed)
 
 If you skipped agent configuration during setup, add LightMCP to your agent's `mcp_config.json`. For Antigravity (stdio bridge):
