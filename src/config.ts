@@ -1,7 +1,7 @@
 // ============================================================
 // LightMCP — Config Loader
 // ============================================================
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -176,15 +176,17 @@ export async function autoPopulateConfig(discoveredServers: Record<string, impor
   // Merge discovered servers with inline servers
   const mergedServers = { ...discoveredServers, ...cfg.mcpServers };
 
-  // Write updated config back to disk
+  // Write updated config back to disk (atomic: tmp + rename)
   const configPath = resolveConfigPath();
   const updated = {
     ...cfg,
-    mcpConfigPath: paths.length > 0 ? paths.join(path.delimiter) : null,
+    mcpConfigPath: paths.length > 0 ? JSON.stringify(paths) : null,
     mcpServers: mergedServers,
   };
 
-  await writeFile(configPath, JSON.stringify(updated, null, 2), "utf-8");
+  const tmpPath = configPath + ".tmp";
+  await writeFile(tmpPath, JSON.stringify(updated, null, 2), "utf-8");
+  await rename(tmpPath, configPath);
   // Invalidate cached config so next loadConfig() picks up the changes
   invalidateConfig();
   console.log(`  [INFO] Auto-configured ${paths.length} agent path(s), ${Object.keys(mergedServers).length} server(s)`);
@@ -199,10 +201,20 @@ export async function resolveWatchPaths(): Promise<string[]> {
   const paths: string[] = [];
 
   if (cfg.mcpConfigPath) {
-    // Could be a single path or path.delimiter-joined list
-    for (const p of cfg.mcpConfigPath.split(path.delimiter)) {
-      const trimmed = p.trim();
-      if (trimmed && existsSync(trimmed)) paths.push(trimmed);
+    // Try JSON array first (new format), fallback to single string (old format)
+    try {
+      const parsed = JSON.parse(cfg.mcpConfigPath);
+      if (Array.isArray(parsed)) {
+        for (const p of parsed) {
+          if (typeof p === "string" && existsSync(p)) paths.push(p);
+        }
+      } else {
+        // Legacy: single string path
+        if (existsSync(cfg.mcpConfigPath)) paths.push(cfg.mcpConfigPath);
+      }
+    } catch {
+      // Not valid JSON — treat as single path
+      if (existsSync(cfg.mcpConfigPath)) paths.push(cfg.mcpConfigPath);
     }
   }
 

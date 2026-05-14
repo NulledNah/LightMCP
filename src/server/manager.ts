@@ -18,9 +18,12 @@ export type ListEntry = {
 };
 
 async function writeConfig(cfg: LightMCPConfig | Record<string, unknown>): Promise<void> {
-  const { writeFile } = await import("node:fs/promises");
+  const { writeFile, rename } = await import("node:fs/promises");
   const configPath = resolveConfigPath();
-  await writeFile(configPath, JSON.stringify(cfg, null, 2), "utf-8");
+  // Atomic write: write to temp file, then rename (prevents partial writes)
+  const tmpPath = configPath + ".tmp";
+  await writeFile(tmpPath, JSON.stringify(cfg, null, 2), "utf-8");
+  await rename(tmpPath, configPath);
   invalidateConfig();
 }
 

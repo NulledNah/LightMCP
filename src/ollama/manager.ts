@@ -126,6 +126,9 @@ export async function stopOllama(): Promise<void> {
     _idleTimer = null;
   }
 
+  // Prevent a pending startOllama() from resurrecting the state
+  _startPromise = null;
+
   if (_proc && _state !== "stopped") {
     _state = "stopped";
     killProcess(_proc, true);
