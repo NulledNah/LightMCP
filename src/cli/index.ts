@@ -889,6 +889,30 @@ Tip (max 100 chars):`;
     await stopOllama();
   });
 
+// ── lightmcp server ─────────────────────────────────────────
+program
+  .command("server <action> [name]")
+  .description("Manage MCP servers: add, remove, list, disable, enable")
+  .option("--command <cmd>", "Command to run (for add)")
+  .option("--args <args>", "Arguments (space-separated, for add)")
+  .option("--server-url <url>", "Server URL (for add)")
+  .option("--env <vars>", "Environment variables (comma-separated KEY=VALUE, for add)")
+  .option("--action <mode>", "restore or delete (for remove, skips prompt)")
+  .option("--all", "Show disabled servers too (for list)")
+  .action(async (action: string, name: string | undefined, opts: any) => {
+    const { serverCommand } = await import("./commands/server.js");
+    await serverCommand(action as any, name, opts);
+  });
+
+// ── lightmcp uninstall ──────────────────────────────────────
+program
+  .command("uninstall")
+  .description("Restore agent configs and remove LightMCP")
+  .action(async () => {
+    const { uninstallCommand } = await import("./commands/uninstall.js");
+    await uninstallCommand();
+  });
+
 // ── Default: treat unknown args as "call <tool> [args...]" ─
 // Antigravity may run: lightmcp kicad search_footprints --query "x"
 program.action(async (...args: (string | unknown)[]) => {
