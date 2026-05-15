@@ -86,9 +86,9 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
             disabled: serverCfg.disabled === true,
           });
         }
-      } catch {}
+      } catch { /* skip */ }
     }
-  } catch {}
+  } catch { /* skip */ }
 
   return showDisabled ? results : results.filter(r => !r.disabled);
 }
@@ -134,9 +134,9 @@ export async function addServer(
 
           messages.push(`removed from ${agent.name}`);
         }
-      } catch {}
+      } catch { /* skip */ }
     }
-  } catch {}
+  } catch { /* skip */ }
 
   // Clear _removed flag from any backup (server was explicitly re-added)
   try {
@@ -152,10 +152,10 @@ export async function addServer(
             delete backup.mcpServers[name]._removed;
             writeFileSync(bp, JSON.stringify(backup, null, 2) + "\n", "utf-8");
           }
-        } catch {}
+        } catch { /* skip */ }
       }
     }
-  } catch {}
+  } catch { /* skip */ }
 
   await buildCatalog();
   const agentMsg = messages.length > 0 ? ` (${messages.join(", ")})` : "";
@@ -190,15 +190,15 @@ export async function removeServer(
             }
             break;
           }
-        } catch {}
+        } catch { /* skip */ }
       }
     }
-  } catch {}
+  } catch { /* skip */ }
 
   let shouldRestore = opts.restore ?? false;
 
   // Interactive prompt
-  if (opts.interactive && !opts.restore && !opts.hasOwnProperty("restore")) {
+  if (opts.interactive && !opts.restore && !Object.hasOwn(opts, "restore")) {
     // Default interactive mode: non-interactive without TTY is not great
     // Just use the presence of the opts to decide
     shouldRestore = false;
@@ -225,7 +225,7 @@ export async function removeServer(
           backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
           writeFileSync(backupPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
         }
-      } catch {}
+      } catch { /* skip */ }
     }
 
     // Also mark in standalone Antigravity backup
@@ -237,7 +237,7 @@ export async function removeServer(
           backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
           writeFileSync(standaloneBackup, JSON.stringify(backup, null, 2) + "\n", "utf-8");
         }
-      } catch {}
+      } catch { /* skip */ }
     }
   }
 
@@ -318,7 +318,7 @@ export async function uninstallAll(): Promise<string[]> {
         }
       }
     }
-  } catch {}
+  } catch { /* skip */ }
 
   // 2. Clean up generated files
   const { rm } = await import("node:fs/promises");
@@ -326,7 +326,7 @@ export async function uninstallAll(): Promise<string[]> {
   for (const f of cleanupFiles) {
     const fp = path.resolve(process.cwd(), f);
     if (existsSync(fp)) {
-      try { await rm(fp); } catch {}
+      try { await rm(fp); } catch { /* skip */ }
     }
   }
 
@@ -334,7 +334,7 @@ export async function uninstallAll(): Promise<string[]> {
   try {
     const { stopOllama } = await import("../ollama/manager.js");
     await stopOllama();
-  } catch {}
+  } catch { /* skip */ }
 
   messages.push("[INFO] LightMCP uninstalled. Config file preserved for reinstall.");
   return messages;

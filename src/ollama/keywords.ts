@@ -32,16 +32,15 @@ export function generateDomainKeywords(catalog: ToolEntry[]): Record<string, str
 
   for (const t of catalog) {
     let words = serverWords.get(t.serverKey);
-    let keyWords = serverKeyWords.get(t.serverKey);
     if (!words) {
       words = new Set();
       serverWords.set(t.serverKey, words);
-      keyWords = new Set();
-      serverKeyWords.set(t.serverKey, keyWords);
+      const skw = new Set<string>();
+      serverKeyWords.set(t.serverKey, skw);
       // Server key words are always kept (most specific)
       for (const w of splitIntoWords(t.serverKey)) {
         words.add(w);
-        keyWords.add(w);
+        skw.add(w);
       }
     }
 

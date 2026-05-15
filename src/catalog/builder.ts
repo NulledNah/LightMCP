@@ -6,7 +6,7 @@ import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { loadMcpConfig, resolveMcpConfigPath, loadConfig } from "../config.js";
+import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
 import type {
   MCPServerConfig,

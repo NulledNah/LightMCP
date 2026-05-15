@@ -6,7 +6,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
 import type { MCPServerConfig } from "../types.js";
 
