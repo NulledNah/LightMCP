@@ -1,32 +1,36 @@
 # LightMCP
 
-> **A local LLM-powered semantic tool router for MCP** — bypass the Antigravity's 100-tool limit and reduce context window usage in any MCP-compatible AI agent.
+> **A local LLM-powered semantic tool router for MCP** -- bypass the 100-tool limit and reduce context window usage in any MCP-compatible AI agent.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
 [![Ollama](https://img.shields.io/badge/Ollama-required-blue)](https://ollama.com)
+[![Version](https://img.shields.io/badge/version-0.3.5-orange)](https://github.com/NulledNah/LightMCP/releases)
 
 ---
 
 ## The Problem
 
-Typically, MCP-compatible agents (such as Antigravity) have a maximum limit of **100 tools** across all connected servers in order to avoid overloading the context window with too many tools. With tools like KiCad MCP (137 tools), Chrome DevTools, and Fusion360 active simultaneously, you instantly blow past the limit — and even within it, injecting every tool definition into every conversation wastes thousands of tokens.
+MCP-compatible agents (such as Antigravity) typically enforce a maximum of **100 tools** across all connected servers to prevent context window overload. With tools like KiCad MCP (137 tools), Chrome DevTools, and Fusion 360 active simultaneously, the limit is exceeded immediately -- and even within it, injecting every tool definition into every conversation wastes thousands of tokens.
 
 ## The Solution
 
-LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`get_task_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them — LightMCP transparently forwards each call to the real downstream MCP server.
+LightMCP sits between your AI agent and your MCP servers. It exposes a **single tool** (`get_task_tools`) that the agent calls with a natural language task description. A local LLM (running via Ollama) reads the full catalog and returns **only the relevant tools** for that task. The selected tools are then **dynamically registered** on LightMCP so the agent can call them -- LightMCP transparently forwards each call to the real downstream MCP server.
 
 ```
-Agent → get_task_tools("create a KiCad footprint") → [create_footprint, ...]
-Agent → tools/list → [create_footprint, get_footprint_info, ...]  (dynamically registered)
-Agent → tools/call("create_footprint", {...}) → LightMCP → KiCad MCP → result
+Agent -> get_task_tools("create a KiCad footprint") -> [create_footprint, ...]
+Agent -> tools/list -> [create_footprint, get_footprint_info, ...]  (dynamically registered)
+Agent -> tools/call("create_footprint", {...}) -> LightMCP -> KiCad MCP -> result
 ```
 
-- **Fully local** — no data sent to external APIs
-- **On-demand** — Ollama starts only when needed, shuts down after 2 minutes idle
-- **Auto-updating catalog** — watches `mcp_config.json` and rebuilds on change
-- **Transparent proxy** — agent calls tools through LightMCP as if they were its own
-- **Windows auto-start** — registers via Task Scheduler
+- **Fully local** -- no data sent to external APIs
+- **On-demand** -- Ollama starts only when needed, shuts down after idle timeout
+- **Auto-updating catalog** -- watches MCP config files and rebuilds on change
+- **Transparent proxy** -- agent calls tools through LightMCP as if they were its own
+- **Multilingual** -- detects non-English queries and auto-translates them before tool matching
+- **Dynamic server discovery** -- no hardcoded server names, keywords generated from actual tool catalogs
+- **Server management** -- add, remove, disable, enable MCP servers from the CLI
+- **Clean uninstall** -- restores all original agent configurations from backup
 
 ---
 
@@ -34,12 +38,12 @@ Agent → tools/call("create_footprint", {...}) → LightMCP → KiCad MCP → r
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| GPU VRAM  | 6 GB    | 8 GB (RTX 3070 Ti) |
-| RAM       | 12 GB   | 16 GB |
-| CPU       | Any modern | Intel i5-11600K or better |
-| Disk      | 6 GB free | 10 GB free |
+| GPU VRAM  | 4 GB    | 6 GB |
+| RAM       | 8 GB    | 16 GB |
+| CPU       | Any modern | Intel i5 or better |
+| Disk      | 4 GB free | 8 GB free |
 
-The default model (`qwen2.5-coder:7b-instruct` Q4_K_M) uses ~4.5 GB VRAM.
+The recommended model (`gemma3:4b`) uses approximately 2.5 GB VRAM. The previous default (`qwen2.5-coder:7b-instruct`) used 4.5 GB. Any Ollama model with reliable structured JSON output works -- see the FAQ.
 
 ---
 
@@ -63,7 +67,7 @@ lightmcp setup
 lightmcp start
 ```
 
-`lightmcp setup` now handles everything automatically:
+`lightmcp setup` handles everything automatically:
 1. Checks for Ollama and prints install instructions if missing
 2. Pulls the configured model
 3. Builds the tool catalog from all downstream MCP servers
@@ -79,13 +83,13 @@ LightMCP is fully functional on Linux and WSL2 with the exception of `setup` (wh
 ```bash
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull qwen2.5-coder:7b-instruct
+ollama pull gemma3:4b
 
 # Clone, install, build as usual
 git clone https://github.com/NulledNah/LightMCP.git && cd LightMCP
 npm install && npm run build
 
-# Skip 'lightmcp setup' — use individual commands instead:
+# Skip 'lightmcp setup' -- use individual commands instead:
 node dist/cli/index.js build-catalog   # build tool catalog
 node dist/cli/index.js start           # start the router
 node dist/cli/index.js status          # verify everything works
@@ -93,18 +97,18 @@ node dist/cli/index.js status          # verify everything works
 
 | Feature | Linux | WSL2 | Windows |
 |---------|-------|------|---------|
-| `start` / `status` / `test` | ✅ | ✅ | ✅ |
-| `build-catalog` | ✅ | ✅ | ✅ |
-| `call` / `get-tools` | ✅ | ✅ | ✅ |
-| `setup` (auto-install Ollama) | ⚠️ manual | ⚠️ manual | ✅ `winget` |
-| Task Scheduler auto-start | ❌ | ❌ | ✅ |
-| 223 unit/integration tests | ✅ | ✅ | ✅ |
+| `start` / `status` / `test` | [x] | [x] | [x] |
+| `build-catalog` | [x] | [x] | [x] |
+| `call` / `get-tools` | [x] | [x] | [x] |
+| `server` (add/remove/list/disable/enable) | [x] | [x] | [x] |
+| `setup` (auto-install Ollama) | manual | manual | [x] `winget` |
+| Task Scheduler auto-start | -- | -- | [x] |
+| 235 unit/integration tests | [x] | [x] | [x] |
 
-Full Linux compatibility (including unattended `setup`) is planned for v0.4.0.
-
-### Manual steps (if needed)
+### Manual agent configuration
 
 If you skipped agent configuration during setup, add LightMCP to your agent's `mcp_config.json`. For Antigravity (stdio bridge):
+
 ```json
 {
   "mcpServers": {
@@ -117,6 +121,7 @@ If you skipped agent configuration during setup, add LightMCP to your agent's `m
 ```
 
 For agents that support HTTP (Claude Code, Cursor, openCode):
+
 ```json
 {
   "mcpServers": {
@@ -127,7 +132,7 @@ For agents that support HTTP (Claude Code, Cursor, openCode):
 }
 ```
 
-**Important:** Only LightMCP goes in the agent's config. All other MCP servers (KiCad, Chrome DevTools, etc.) are configured in the file pointed to by `mcpConfigPath` in `lightmcp_config.json` (default: auto-detected from the standard Antigravity path). LightMCP reads that file to build its internal tool catalog.
+**Important:** Only LightMCP goes in the agent's config. All other MCP servers are managed by LightMCP's own `lightmcp_config.json`. When using **isolate** mode (recommended), servers are automatically copied to LightMCP's inline `mcpServers` alongside a backup saved for uninstall restoration.
 
 ### Generate tips (optional, already done by setup)
 
@@ -146,65 +151,39 @@ lightmcp build-catalog
 
 ## Architecture
 
-```mermaid
-sequenceDiagram
-    participant A as AI Agent
-    participant L as LightMCP
-    participant O as Ollama
-    participant D as Downstream MCP
-
-    A->>L: tools/list
-    L-->>A: [get_task_tools]
-
-    A->>L: tools/call("get_task_tools", {task})
-    L->>O: Select relevant tools
-    O-->>L: [create_footprint, list_libraries]
-    L-->>A: Selected tools summary
-
-    Note over L: Dynamically registers<br/>selected tools
-
-    L-->>A: notifications/tools/list_changed
-    A->>L: tools/list
-    L-->>A: [create_footprint, list_libraries]
-
-    A->>L: tools/call("create_footprint", args)
-    L->>D: Forward call
-    D-->>L: Result
-    L-->>A: Result
+```
+                         +------------------+
+                         |   AI Agent       |
+                         |  (only LightMCP) |
+                         +--------+---------+
+                                  |
+                        MCP Streamable HTTP
+                                  |
+                         +--------v---------+
+                         |   LightMCP       |
+                         |  localhost:3131   |
+                         |                  |
+                         |  - Semantic tool |
+                         |    selection     |
+                         |  - Dynamic reg.  |
+                         |  - Proxy pool    |
+                         |  - Tool catalog  |
+                         +----+------+------+
+                              |      |
+                    REST API  |      | MCP client
+                              |      |
+                   +----------v-+  +-v-----------+
+                   | Ollama     |  | Downstream   |
+                   | localhost  |  | MCP Servers  |
+                   | :11434     |  |              |
+                   |            |  | Kicad (stdio)|
+                   | gemma3:4b  |  | DevTools     |
+                   | idle 120s  |  | Fusion 360   |
+                   +------------+  | ...          |
+                                   +--------------+
 ```
 
-```mermaid
-flowchart TB
-    subgraph Agent["AI Agent"]
-        direction TB
-        A1["Only LightMCP in config"]
-        A2["Calls tools through LightMCP"]
-    end
-
-    subgraph LightMCP["LightMCP (localhost:3131)"]
-        direction TB
-        L1["get_task_tools<br/>Ollama semantic selection"]
-        L2["Dynamic tool registration<br/>on McpServer singleton"]
-        L3["Proxy pool<br/>forward tools/call"]
-        L4["Tool catalog<br/>auto-built from all servers"]
-    end
-
-    subgraph Ollama["Ollama (localhost:11434)"]
-        O1["qwen2.5-coder:7b-instruct"]
-        O2["Starts on demand<br/>Idle timeout: 120s"]
-    end
-
-    subgraph Downstream["Downstream MCP Servers"]
-        D1["KiCad MCP (stdio)"]
-        D2["Chrome DevTools (HTTP)"]
-        D3["Fusion360 (HTTP)"]
-        D4["..."]
-    end
-
-    Agent <-->|"MCP Streamable HTTP"| LightMCP
-    LightMCP -->|"REST API"| Ollama
-    LightMCP <-->|"MCP client"| Downstream
-```
+LightMCP exposes a single `get_task_tools` endpoint. The agent calls it with a task description in any language (Italian, Spanish, German, etc.). LightMCP auto-translates non-English queries, pre-filters the catalog by domain keywords dynamically extracted from the actual server tools, and sends only the relevant subset to Ollama for semantic selection.
 
 ---
 
@@ -217,14 +196,21 @@ flowchart TB
 | `lightmcp build-catalog --active-only` | Only include tools from enabled servers |
 | `lightmcp status` | Show status of server, Ollama, and catalog |
 | `lightmcp test "<task>"` | Test tool routing locally |
-| `lightmcp get-tools "<task>"` | Discover relevant tools for a task via semantic LLM selection |
+| `lightmcp get-tools "<task>"` | Discover relevant tools for a task via semantic LLM selection (multilingual) |
 | `lightmcp call <tool> [args...]` | Call a tool through LightMCP (forwards to downstream MCP server) |
-| `lightmcp call <tool> --file <path>` | Call a tool with arguments from a JSON file (bypasses shell quoting) |
+| `lightmcp call <tool> --file <path>` | Call a tool with arguments from a JSON file |
 | `lightmcp call <tool> --output <path>` | Auto-decode base64 image results to a file |
 | `lightmcp generate-tips` | Generate procedural usage tips for each tool via local LLM |
 | `lightmcp generate-tips --server <key>` | Generate tips for a specific server only |
 | `lightmcp setup` | Full setup: Ollama + model + catalog + agent config + Windows startup |
 | `lightmcp configure` | Re-run AI agent MCP configuration (scan, isolate/add/manual) |
+| `lightmcp server list` | List all configured MCP servers |
+| `lightmcp server list --all` | List all servers including disabled |
+| `lightmcp server add <name>` | Add a new MCP server to LightMCP |
+| `lightmcp server remove <name>` | Remove a server (auto-rebuilds catalog) |
+| `lightmcp server disable <name>` | Disable a server without removing its config |
+| `lightmcp server enable <name>` | Re-enable a previously disabled server |
+| `lightmcp uninstall` | Restore all agent configs from backup and clean up |
 
 ---
 
@@ -241,7 +227,7 @@ Edit `lightmcp_config.json` in the project root:
   },
   "ollama": {
     "host": "http://127.0.0.1:11434",
-    "model": "qwen2.5-coder:7b-instruct",
+    "model": "gemma3:4b",
     "idleTimeoutSeconds": 120,
     "startupTimeoutSeconds": 30,
     "maxRetries": 2
@@ -251,7 +237,8 @@ Edit `lightmcp_config.json` in the project root:
     "outputPath": "tool_catalog.json",
     "watchMcpConfig": true
   },
-  "mcpConfigPath": null
+  "mcpConfigPath": null,
+  "mcpServers": {}
 }
 ```
 
@@ -259,16 +246,40 @@ Edit `lightmcp_config.json` in the project root:
 |---------|---------|-------------|
 | `server.port` | `3131` | Port for the MCP HTTP server |
 | `server.host` | `127.0.0.1` | Host to bind the server |
-| `server.idleTimeoutSeconds` | `0` (disabled) | Seconds before server auto-shuts down. Set to e.g. `300` to shut down after 5 min idle |
+| `server.idleTimeoutSeconds` | `0` | Seconds before server auto-shuts down (0 = never) |
 | `ollama.host` | `http://127.0.0.1:11434` | Ollama API URL |
-| `ollama.model` | `qwen2.5-coder:7b-instruct` | Ollama model for tool selection |
+| `ollama.model` | `gemma3:4b` | Ollama model for tool selection and translation |
 | `ollama.idleTimeoutSeconds` | `120` | Seconds before Ollama is shut down |
 | `ollama.startupTimeoutSeconds` | `30` | Max seconds to wait for Ollama to start |
 | `ollama.maxRetries` | `2` | Retries on Ollama inference failure |
 | `catalog.activeOnly` | `false` | Only include tools from enabled servers |
 | `catalog.outputPath` | `tool_catalog.json` | Where to persist the tool catalog |
 | `catalog.watchMcpConfig` | `true` | Auto-rebuild catalog on config changes |
-| `mcpConfigPath` | null (auto-detected) | Override path to the MCP config listing all servers |
+| `mcpConfigPath` | null | Override path to agent MCP config (JSON array of paths supported) |
+| `mcpServers` | `{}` | Inline MCP server definitions. Populated automatically by isolate mode. |
+
+### Inline server configuration
+
+You can define servers directly in `lightmcp_config.json` under `mcpServers`. This is the preferred method -- servers configured here are available for catalog building without external files.
+
+```json
+{
+  "mcpServers": {
+    "kicad": {
+      "command": "node",
+      "args": ["/path/to/KiCAD-MCP-Server/dist/index.js"],
+      "env": { "KICAD_PYTHON": "/path/to/python.exe" },
+      "disabledTools": ["tool_a", "tool_b"]
+    },
+    "my-api-server": {
+      "serverUrl": "http://127.0.0.1:8080/mcp",
+      "disabled": false
+    }
+  }
+}
+```
+
+The `mcpServers` schema supports: `command`, `args`, `env`, `serverUrl`, `disabled`, and `disabledTools` per server. The `lightmcp` key is reserved for the bridge entry; it is automatically skipped during catalog building.
 
 ---
 
@@ -278,11 +289,15 @@ During `lightmcp setup`, LightMCP scans your system for compatible AI agents (An
 
 | Mode | Behavior |
 |------|----------|
-| **Isolate** (Recommended) | Saves the full server list to `lightmcp_servers.json`, then rewrites the agent's config with only LightMCP. LightMCP reads the full list via `mcpConfigPath`. Best for minimizing context usage. |
+| **Isolate** (Recommended) | Copies all real servers to LightMCP's inline `mcpServers` and saves a backup to `lightmcp_servers.json` (for uninstall restoration). Rewrites the agent's config with only the LightMCP bridge. Best for minimizing context usage. |
 | **Add** | Leaves existing MCP servers untouched, adds LightMCP alongside them. |
-| **Manual** | No changes — prints the exact JSON snippet and config path for each detected agent. |
+| **Manual** | No changes -- prints the exact JSON snippet and config path for each detected agent. |
 
 You can re-run configuration anytime with `lightmcp configure`.
+
+### Uninstall
+
+`lightmcp uninstall` restores all original agent configurations from their `lightmcp_servers.json` backups. Servers explicitly deleted via `lightmcp server remove` are marked as removed and are not restored during uninstall.
 
 Detected agents and their MCP config paths:
 
@@ -298,15 +313,16 @@ Detected agents and their MCP config paths:
 
 ## How to Use
 
-Once running, your agent connects only to LightMCP. Here's a real tested flow from v0.2.0:
+Once running, your agent connects only to LightMCP:
 
 ```
-1. Agent calls get_task_tools("generate a 10mm cube in Autodesk Fusion")
-2. Domain-aware pre-filter: 173 tools → 3 Fusion tools
-3. Ollama selects: fusion_mcp_execute, fusion_mcp_read
-4. LightMCP dynamically registers these 2 tools on its MCP server
-5. Agent calls fusion_mcp_execute via tools/call with Python script arguments
-6. Agent calls fusion_mcp_read via tools/call → 1 body verified in active document
+1. Agent calls get_task_tools("crea una sfera in Autodesk Fusion")
+2. Language detected (Italian) -- auto-translated to English via Ollama
+3. Domain-aware pre-filter: 169 tools -> 3 Fusion tools
+4. Ollama selects: fusion_mcp_execute
+5. LightMCP dynamically registers the selected tools on its MCP server
+6. Agent calls fusion_mcp_execute via tools/call with Python script arguments
+7. Agent calls fusion_mcp_read to verify the result
 ```
 
 More examples:
@@ -326,49 +342,14 @@ lightmcp get-tools "debug performance of my landing page"
 lightmcp call navigate_page --url "https://mysite.com"
 lightmcp call performance_start_trace --reload true
 lightmcp call take_screenshot --output landing.png
+
+# Server management
+lightmcp server list
+lightmcp server disable kicad
+lightmcp server enable kicad
 ```
 
-The agent never sees the 137 KiCad tools — only the relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
-
----
-
-## Windows Startup Registration
-
-`lightmcp setup` registers a Task Scheduler entry that starts LightMCP at every user login. To manage it manually:
-
-```powershell
-# Register (requires admin)
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -RegisterTask
-
-# Remove
-powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
-```
-
----
-
-## What's New in v0.2.0
-
-### Semantic Tool Selection Upgrades
-- **Procedural tool tips** — `tool_tips.json` provides LLM-generated usage hints for each tool (when/why to use it, not just what it does). Generate via `lightmcp generate-tips`.
-- **Domain-aware pre-filtering** — scans the task for domain keywords (Fusion, PCB, browser, etc.) and sends only relevant server tools to Ollama, eliminating cross-domain noise.
-- **Structured reasoning framework** — system prompt guides the model through Task Analysis → Capability Mapping → Tool Selection.
-- **Server-grouped catalog with domain labels** — tools presented to the LLM as `=== autodesk-fusion [3D CAD / Fusion 360] ===` with parameter hints and tips.
-
-### CLI & Reliability
-- **`get-tools` command** — one-line tool discovery: `lightmcp get-tools "create a 10mm cube in Fusion"`
-- **`call` command with `--file`** — bypass PowerShell quoting hell by reading JSON arguments from a file: `lightmcp call fusion_mcp_execute --file args.json`
-- **`call --output <path>`** — auto-decode base64 image results (screenshots, renders) to PNG files
-- **`generate-tips` command** — per-tool LLM calls with zero cross-contamination, kept alive via `keepOllamaAlive()`
-- **Timeout increased** — `get-tools` CLI timeout 5s → 30s for reliable cold-start responses
-- Token budget: 512 → 1024, + `top_k` / `top_p` for inference quality
-- Tool descriptions: 100 → 250 chars with word-boundary truncation
-
-### Tested Use Cases
-| # | Scenario | Comando | Risultato |
-|---|----------|---------|-----------|
-| 1 | **Fusion 360: cubo 10mm** | `lightmcp get-tools "generate a 10mm cube in Autodesk Fusion"` → seleziona `fusion_mcp_execute`. Script Python eseguito con `lightmcp call fusion_mcp_execute --file args.json`. | Cubo creato. Verificato con `lightmcp call fusion_mcp_read --queryType "document" --operation "open"` → 1 corpo solido nel documento attivo. |
-| 2 | **Fusion 360: modello da disegno tecnico** | `lightmcp get-tools` su [TootallToby practice](https://tootalltoby.com/practice/b241362f-3964-4e43-9b31-057eeaa34147). `fusion_mcp_execute` selezionato, script generato dalle dimensioni del disegno. | Modello 3D creato correttamente fino a difficoltà Tier 2. Dimensioni verificate. |
-| 3 | **KiCad: ricerca footprint** | `lightmcp get-tools "search for a JST-SH footprint"` → seleziona `search_footprints` + `get_footprint_info`. | Footprint trovato e parametri verificati. |
+The agent never sees the full tool list -- only the relevant ones per task. All tool execution happens on the real downstream servers; LightMCP only routes.
 
 ---
 
@@ -378,7 +359,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1 -UnregisterTask
 
 - Always call `get_task_tools` before any task
 - Use `--file` for complex JSON arguments
-- Domain-specific guidance for Fusion 360, KiCad, and Chrome DevTools
+- The template path is automatically resolved to the actual installation directory
 
 To install manually:
 ```powershell
@@ -399,20 +380,26 @@ If `~/.gemini/GEMINI.md` already exists, the template is prepended to preserve y
 
 ## FAQ
 
-**Q: Will the local model send my data anywhere?**  
+**Q: Will the local model send my data anywhere?**
 A: No. Ollama runs entirely locally. No data leaves your machine.
 
-**Q: What if Ollama selects wrong tools?**  
-A: LightMCP validates all selected names against the catalog — hallucinated tool names are silently dropped. You can always fall back to manual catalog browsing.
+**Q: What if Ollama selects wrong tools?**
+A: LightMCP validates all selected names against the catalog -- hallucinated tool names are silently dropped. You can always fall back to manual catalog browsing.
 
-**Q: Can I use a different model?**  
-A: Yes — change `ollama.model` in `lightmcp_config.json`. Any Ollama model with reliable JSON output works. `qwen2.5-coder:7b-instruct` is the tested default.
+**Q: What model should I use?**
+A: `gemma3:4b` (2.5 GB VRAM) is the recommended default, providing good semantic reasoning for tool selection with lower VRAM usage than the prior default. Any Ollama model with reliable structured JSON output works -- change `ollama.model` in `lightmcp_config.json`.
 
-**Q: How long does tool selection take?**  
-A: First call: ~3–5s (Ollama startup) + ~1–2s inference. Subsequent calls (while Ollama is warm): ~1–2s.
+**Q: How long does tool selection take?**
+A: First call: approximately 3-5s (Ollama startup) + 1-2s inference. Subsequent calls (while Ollama is warm): 1-2s. Non-English queries add approximately 0.5s for translation.
+
+**Q: Can I query in languages other than English?**
+A: Yes. LightMCP automatically detects Italian, Spanish, French, German, and Portuguese queries and translates them to English before tool matching.
+
+**Q: How do I manage my servers after setup?**
+A: Use `lightmcp server list` to see all configured servers. `lightmcp server disable <name>` temporarily disables a server without removing it. `lightmcp server remove <name>` permanently deletes it but preserves the option to restore during uninstall.
 
 ---
 
 ## License
 
-MIT © 2025
+MIT (c) 2026
