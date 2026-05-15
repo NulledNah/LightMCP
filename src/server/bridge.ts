@@ -17,7 +17,18 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const LIGHTMCP_URL = process.env.LIGHTMCP_URL ?? "http://127.0.0.1:3131/mcp";
+let LIGHTMCP_URL = process.env.LIGHTMCP_URL ?? "http://127.0.0.1:3131/mcp";
+
+// If env var not set, try reading from lightmcp_config.json
+if (!process.env.LIGHTMCP_URL) {
+  try {
+    const { loadConfig } = await import("../config.js");
+    const cfg = await loadConfig();
+    LIGHTMCP_URL = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
+  } catch {
+    // Config not available — use default
+  }
+}
 let _sessionId: string | null = null;
 let _serverProc: ChildProcess | null = null;
 let _serverStarting: Promise<void> | null = null;

@@ -8,10 +8,10 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../config.js";
+import { getVersion } from "../version.js";
 import {
   handleGetTools,
   GetToolsInputSchema,
@@ -19,7 +19,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let _version: string | null = null;
 let _mcpServer: McpServer | null = null;
 let _transport: StreamableHTTPServerTransport | null = null;
 let _lastActivity: number = Date.now();
@@ -42,18 +41,6 @@ export function untrackTool(name: string): void {
   const idx = _toolList.findIndex(t => t.name === name);
   if (idx >= 0) _toolList.splice(idx, 1);
   _toolMeta.delete(name);
-}
-
-async function getVersion(): Promise<string> {
-  if (_version) return _version;
-  try {
-    const pkgPath = path.resolve(__dirname, "../../package.json");
-    const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as { version: string };
-    _version = pkg.version;
-  } catch {
-    _version = "0.1.0";
-  }
-  return _version;
 }
 
 /** Shared McpServer instance — call after createMcpServer() */

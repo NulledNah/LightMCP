@@ -11,6 +11,18 @@ import os from "node:os";
 const __agentDir = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE_PATH = path.resolve(__agentDir, "..", "server", "bridge.js");
 
+/** Resolve the lightmcp_config.json path (mirrors config.ts) */
+function resolveLightMCPConfigPath(): string {
+  const CONFIG_FILENAME = "lightmcp_config.json";
+  let dir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, CONFIG_FILENAME);
+    if (existsSync(candidate)) return candidate;
+    dir = path.dirname(dir);
+  }
+  return path.join(__agentDir, "..", CONFIG_FILENAME);
+}
+
 /** Resolve Antigravity MCP config path (standalone vs VS Code extension install) */
 function resolveAntigravityConfigPath(): string {
   const standalone = path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json");
@@ -186,21 +198,43 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
   const servers = (cfg[agent.mcpServersKey] ?? {}) as Record<string, unknown>;
 
   if (choice === "isolate") {
-    // Save full server list for LightMCP internal use
+    // Save full server list as backup (for uninstall restoration only).
+    // Exclude lightmcp from the backup since it's the bridge, not a real server.
     const configDir = path.dirname(agent.configPath);
     const fullServersPath = path.join(configDir, "lightmcp_servers.json");
+    const backupServers: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(servers)) {
+      if (key !== "lightmcp") {
+        backupServers[key] = val;
+      }
+    }
     writeFileSync(
       fullServersPath,
-      JSON.stringify(cfg, null, 2) + "\n",
+      JSON.stringify({ mcpServers: backupServers }, null, 2) + "\n",
       "utf-8"
     );
+
+    // Also register servers in LightMCP's own inline config so
+    // the catalog builder can discover them without reading the backup.
+    const lightmcpConfigPath = resolveLightMCPConfigPath();
+    if (existsSync(lightmcpConfigPath)) {
+      try {
+        const lcRaw = readFileSync(lightmcpConfigPath, "utf-8");
+        const lcCfg = JSON.parse(lcRaw);
+        if (!lcCfg.mcpServers) lcCfg.mcpServers = {};
+        for (const key of Object.keys(backupServers)) {
+          lcCfg.mcpServers[key] = backupServers[key];
+        }
+        writeFileSync(lightmcpConfigPath, JSON.stringify(lcCfg, null, 2) + "\n", "utf-8");
+      } catch { /* config write failed, non-fatal */ }
+    }
 
     // Replace agent config with ONLY LightMCP
     const cleanCfg = { [agent.mcpServersKey]: { lightmcp: agent.lightMCPEntry } };
     writeFileSync(agent.configPath, JSON.stringify(cleanCfg, null, 2) + "\n", "utf-8");
 
-    const serverCount = Object.keys(servers).filter(k => k !== "lightmcp").length;
-    return `saved full server list to ${fullServersPath}, agent config now LightMCP-only (was ${serverCount} servers)`;
+    const serverCount = Object.keys(backupServers).length;
+    return `saved ${serverCount} server(s) to LightMCP, agent config now LightMCP-only`;
   } else {
     // Just add LightMCP
     servers.lightmcp = agent.lightMCPEntry;

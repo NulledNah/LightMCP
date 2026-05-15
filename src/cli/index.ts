@@ -4,10 +4,10 @@
 // Commands: start | build-catalog | status | test | setup
 // ============================================================
 import { Command } from "commander";
-import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getVersion } from "../version.js";
 
 // Load .env silently — no stdout pollution (MCP protocol requires clean stdout)
 import { config as dotenvConfig } from "dotenv";
@@ -47,15 +47,7 @@ function cleanTip(raw: string, toolName: string): string {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkgPath = path.resolve(__dirname, "../../package.json");
-
-let version = "0.1.0";
-try {
-  const pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as { version: string };
-  version = pkg.version;
-} catch {
-  console.warn("[WARN] Could not read package.json, using fallback version.");
-}
+const version = await getVersion();
 
 const program = new Command();
 
@@ -309,10 +301,12 @@ program
     const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
 
     // Antigravity may prefix with server key: lightmcp call kicad search_footprints --query "x"
-    // Skip the server key if the firstArg looks like a server name, and use the next arg as tool
+    // Skip the server key if the firstArg matches a known MCP server, and use the next arg as tool
     let tool = firstArg;
     let argsStart = 0;
-    const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
+    const { resolveMcpServers } = await import("../config.js");
+    const mcpServers = await resolveMcpServers();
+    const knownServers = Object.keys(mcpServers);
     if (rawArgs.length > 0 && knownServers.includes(firstArg)) {
       tool = rawArgs[0];
       argsStart = 1;
@@ -509,7 +503,7 @@ program
           `Write a concise usage tip (max 100 chars) explaining WHEN to select this tool — its role in a workflow.
 CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
   Good: "When you need to quickly find a specific component by name in your library"
-  Bad:  "When you need to find a component, use 'search_footprints' to locate it"
+  Bad:  "When you need to find a component, use 'my_tool' to locate it"
 
 Tool name: "${t.name}"
 Server: ${t.serverKey}
@@ -643,8 +637,12 @@ Tip (max 100 chars):`;
                 existingContent = await readFile(geminiMdPath, "utf-8");
               }
 
+              // Resolve <path-to-LightMCP> placeholder to the actual installation path
+              const cliPath = path.resolve(__dirname, "../../dist/cli/index.js");
+              const resolvedContent = templateContent.replace(/<path-to-LightMCP>/g, cliPath);
+
               // Prepend template to existing content
-              const finalContent = templateContent.trim() + "\n\n" + existingContent.trim();
+              const finalContent = resolvedContent.trim() + "\n\n" + existingContent.trim();
               await writeFile(geminiMdPath, finalContent.trim() + "\n", "utf-8");
               console.log(`  [OK] Antigravity global rule installed at ${geminiMdPath}`);
             } else {
@@ -802,19 +800,14 @@ program
     const cfg = await loadConfig();
     const { host, model } = cfg.ollama;
 
-    const serverDomains: Record<string, string> = {
-      kicad: "PCB / EDA design",
-      "chrome-devtools-mcp": "Browser / Web DevTools",
-      "autodesk-fusion": "3D CAD / Fusion 360",
-      "sequential-thinking": "Structured reasoning / analysis",
-      "google-developer-knowledge": "Google developer documentation",
-    };
+    const { generateServerDomains } = await import("../ollama/keywords.js");
+    const serverDomains = generateServerDomains(tools);
 
     const tipPrompt = (t: typeof tools[number]) =>
       `Write a concise usage tip (max 100 chars) explaining WHEN to select this tool — its role in a workflow.
 CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
   Good: "When you need to quickly find a specific component by name in your library"
-  Bad:  "When you need to find a component, use 'search_footprints' to locate it"
+  Bad:  "When you need to find a component, use 'my_tool' to locate it"
 
 Tool name: "${t.name}"
 Server: ${t.serverKey}${serverDomains[t.serverKey] ? ` [${serverDomains[t.serverKey]}]` : ""}
@@ -921,7 +914,9 @@ program.action(async (...args: (string | unknown)[]) => {
   if (strs.length === 0) return;
 
   // Filter out known server key prefix
-  const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
+  const { resolveMcpServers } = await import("../config.js");
+  const mcpServers = await resolveMcpServers();
+  const knownServers = Object.keys(mcpServers);
   let toolIdx = 0;
   if (strs.length > 1 && knownServers.includes(strs[0])) {
     toolIdx = 1;

@@ -44,8 +44,8 @@ describe('tool_selector.ts', () => {
     // Server grouping with domain labels
     expect(userPrompt).toContain('=== kicad');
     expect(userPrompt).toContain('=== autodesk-fusion');
-    expect(userPrompt).toContain('[PCB / EDA design]');
-    expect(userPrompt).toContain('[3D CAD / Fusion 360]');
+    expect(userPrompt).toContain('[Kicad]');
+    expect(userPrompt).toContain('[Autodesk Fusion]');
 
     // Tool entries in new format with parameter hints
     expect(userPrompt).toContain('"create_footprint"');

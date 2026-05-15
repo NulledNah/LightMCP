@@ -110,7 +110,7 @@ If you skipped agent configuration during setup, add LightMCP to your agent's `m
   "mcpServers": {
     "lightmcp": {
       "command": "node",
-      "args": ["C:\\Users\\<username>\\Desktop\\Repos\\LightMCP\\dist\\server\\bridge.js"]
+      "args": ["<path-to-LightMCP>/dist/server/bridge.js"]
     }
   }
 }

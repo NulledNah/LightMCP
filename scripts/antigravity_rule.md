@@ -6,10 +6,10 @@
 lightmcp get-tools "your task description in natural language"
 ```
 
-If `lightmcp` is not found, use the full path:
+If `lightmcp` is not found, use the full path to the installation:
 
 ```
-node "C:\Users\10293\Desktop\Repos\LightMCP\dist\cli\index.js" get-tools "your task"
+node "<path-to-LightMCP>/dist/cli/index.js" get-tools "your task"
 ```
 
 ## The command returns the exact tools available for your task.

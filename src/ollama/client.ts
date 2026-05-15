@@ -6,33 +6,29 @@ import { z } from "zod";
 import { loadConfig } from "../config.js";
 import type { ToolEntry } from "../types.js";
 import { buildToolSelectionPrompt } from "../prompts/tool_selector.js";
+import { generateDomainKeywords } from "./keywords.js";
+import { detectNonEnglish, translateToEnglish } from "./translator.js";
 
 // Expected response: a JSON array of tool name strings
 const SelectionSchema = z.array(z.string().min(1));
 
-/** Domain keyword → server key mapping for pre-filtering the catalog */
-const DOMAIN_KEYWORDS: Record<string, string[]> = {
-  "autodesk-fusion": ["fusion", "cad", "3d", "cube", "model", "sketch", "extrude", "body", "autodesk", "solid", "mesh", "render"],
-  kicad: ["pcb", "kicad", "footprint", "schematic", "board", "trace", "pad", "routing", "circuit", "net", "drc", "erc", "gerber", "netlist", "copper"],
-  "chrome-devtools-mcp": ["browser", "web", "page", "url", "chrome", "screenshot", "navigate", "console", "devtools", "javascript", "css", "html", "dom", "network", "performance", "lighthouse"],
-  "sequential-thinking": ["think", "reason", "analyze", "step by step", "break down", "ponder", "deliberate"],
-  "google-developer-knowledge": ["google", "api doc", "developer documentation", "gcp", "firebase", "adk"],
-};
-
 /**
  * Pre-filter the catalog based on domain keywords in the task.
+ * Keywords are dynamically extracted from the catalog (server keys,
+ * tool names, descriptions, tips) — no hardcoded server names.
  * Reduces prompt size and eliminates cross-domain noise.
  * Falls back to full catalog if no keywords match.
  */
 function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   const lower = task.toLowerCase();
+  const keywords = generateDomainKeywords(catalog);
 
   // Collect matched servers
   const matched = new Set<string>();
-  for (const [server, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
-    for (const kw of keywords) {
+  for (const [server, serverKeywords] of Object.entries(keywords)) {
+    for (const kw of serverKeywords) {
       const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      if (new RegExp(`\\b${escaped}\\b`).test(lower)) {
+      if (new RegExp(`(^|[^a-zA-Z0-9])${escaped}([^a-zA-Z0-9]|$)`).test(lower)) {
         matched.add(server);
         break; // one match per server is enough
       }
@@ -85,10 +81,29 @@ export async function selectTools(
   const cfg = await loadConfig();
   const { host, model, maxRetries } = cfg.ollama;
 
+  // If the task is in a non-English language, translate it so the
+  // keyword pre-filter can match English tool names and descriptions.
+  let filterTask = task;
+  const allHints = [...hints];
+  if (detectNonEnglish(task)) {
+    try {
+      const translated = await translateToEnglish(task, host, model);
+      if (translated && translated !== task) {
+        filterTask = translated;
+        allHints.push(`Original task (translated from non-English): "${task}"`);
+        if (process.env.LIGHTMCP_VERBOSE) {
+          console.log(`\n[DEBUG] Translated task: "${task}" → "${translated}"`);
+        }
+      }
+    } catch {
+      // Translation failed — use original task, no harm done
+    }
+  }
+
   const { systemPrompt, userPrompt } = buildToolSelectionPrompt(
     task,
-    filterCatalogByTask(task, catalog),
-    hints
+    filterCatalogByTask(filterTask, catalog),
+    allHints
   );
 
   const body: OllamaChatRequest = {

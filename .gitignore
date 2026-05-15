@@ -10,6 +10,9 @@ tests/**/*.d.ts
 # Generated catalog (can be large, regenerated on startup)
 tool_catalog.json
 
+# Generated tool tips (regenerated during setup)
+tool_tips.json
+
 # Environment
 .env
 

@@ -30,7 +30,7 @@ function parseCallArgs(rawArgs: string[]): Record<string, unknown> {
   return toolArgs;
 }
 
-const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion", "google-developer-knowledge"];
+const knownServers = ["kicad", "chrome-devtools-mcp", "sequential-thinking", "autodesk-fusion"];
 
 function resolveToolAndArgs(firstArg: string, rawArgs: string[]): { tool: string; args: string[] } {
   let tool = firstArg;
@@ -99,6 +99,5 @@ describe('parseCallArgs', () => {
     expect(knownServers).toContain('chrome-devtools-mcp');
     expect(knownServers).toContain('sequential-thinking');
     expect(knownServers).toContain('autodesk-fusion');
-    expect(knownServers).toContain('google-developer-knowledge');
   });
 });

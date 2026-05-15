@@ -7,6 +7,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { loadMcpConfig, resolveMcpConfigPath, loadConfig } from "../config.js";
+import { getVersion } from "../version.js";
 import type {
   MCPServerConfig,
   ToolCatalog,
@@ -58,6 +59,7 @@ async function queryToolsViaStdio(
   const command = cfg.command!;
   const args = cfg.args ?? [];
   const env = { ...process.env, ...(cfg.env ?? {}) };
+  const version = await getVersion();
 
   return new Promise((resolve, _reject) => {
     const proc: ChildProcess = spawn(command, args, {
@@ -145,7 +147,7 @@ async function queryToolsViaStdio(
       params: {
         protocolVersion: "2024-11-05",
         capabilities: {},
-        clientInfo: { name: "lightmcp-builder", version: "0.1.0" },
+        clientInfo: { name: "lightmcp-builder", version },
       },
     });
 
@@ -178,6 +180,7 @@ async function queryToolsViaHttp(
 
   try {
     // 1. Initialize
+    const version = await getVersion();
     const initRes = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -191,7 +194,7 @@ async function queryToolsViaHttp(
         params: {
           protocolVersion: "2024-11-05",
           capabilities: {},
-          clientInfo: { name: "lightmcp-builder", version: "0.1.0" },
+          clientInfo: { name: "lightmcp-builder", version },
         },
       }),
       signal: controller.signal,

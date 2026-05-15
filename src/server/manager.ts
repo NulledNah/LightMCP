@@ -4,6 +4,7 @@
 // Handles add/remove/disable/enable/list and agent restore.
 // ============================================================
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { loadConfig, invalidateConfig } from "../config.js";
 import type { MCPServerConfig, LightMCPConfig } from "../types.js";
@@ -137,6 +138,25 @@ export async function addServer(
     }
   } catch {}
 
+  // Clear _removed flag from any backup (server was explicitly re-added)
+  try {
+    for (const backupDir of [
+      path.join(os.homedir(), ".gemini", "antigravity"),
+      ...(await detectAgents()).map(a => path.dirname(a.configPath)),
+    ]) {
+      const bp = path.join(backupDir, "lightmcp_servers.json");
+      if (existsSync(bp)) {
+        try {
+          const backup = JSON.parse(readFileSync(bp, "utf-8"));
+          if (backup.mcpServers?.[name]?._removed) {
+            delete backup.mcpServers[name]._removed;
+            writeFileSync(bp, JSON.stringify(backup, null, 2) + "\n", "utf-8");
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
   await buildCatalog();
   const agentMsg = messages.length > 0 ? ` (${messages.join(", ")})` : "";
   return `[OK] Server "${name}" added to LightMCP${agentMsg}`;
@@ -193,6 +213,34 @@ export async function removeServer(
     writeFileSync(ownerAgent.configPath, JSON.stringify(current, null, 2) + "\n", "utf-8");
   }
 
+  // When deleting (not restoring), mark as removed in backups so
+  // uninstall won't restore it, but catalog building won't re-add it either.
+  if (!shouldRestore) {
+    // Remove from detected backup
+    if (backupPath && existsSync(backupPath)) {
+      try {
+        const backup = JSON.parse(readFileSync(backupPath, "utf-8"));
+        if (backup.mcpServers?.[name]) {
+          // Mark as removed rather than deleting, so uninstall can skip it
+          backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
+          writeFileSync(backupPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
+        }
+      } catch {}
+    }
+
+    // Also mark in standalone Antigravity backup
+    const standaloneBackup = path.join(os.homedir(), ".gemini", "antigravity", "lightmcp_servers.json");
+    if (existsSync(standaloneBackup) && standaloneBackup !== backupPath) {
+      try {
+        const backup = JSON.parse(readFileSync(standaloneBackup, "utf-8"));
+        if (backup.mcpServers?.[name]) {
+          backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
+          writeFileSync(standaloneBackup, JSON.stringify(backup, null, 2) + "\n", "utf-8");
+        }
+      } catch {}
+    }
+  }
+
   // Remove from LightMCP
   delete cfg.mcpServers![name];
   await writeConfig(cfg);
@@ -241,6 +289,14 @@ export async function uninstallAll(): Promise<string[]> {
       if (existsSync(bp)) {
         try {
           const backup = JSON.parse(readFileSync(bp, "utf-8"));
+          // Filter out servers marked as _removed (explicitly deleted by user)
+          if (backup.mcpServers) {
+            for (const key of Object.keys(backup.mcpServers)) {
+              if (backup.mcpServers[key]?._removed) {
+                delete backup.mcpServers[key];
+              }
+            }
+          }
           writeFileSync(agent.configPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
           messages.push(`[OK] Restored ${agent.name} to original config`);
         } catch {

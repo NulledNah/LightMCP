@@ -5,6 +5,7 @@
 // reasoning + selected tool names.
 // ============================================================
 import type { ToolEntry } from "../types.js";
+import { generateServerDomains } from "../ollama/keywords.js";
 
 /** Compact catalog entry sent to the model */
 interface CompactTool {
@@ -15,19 +16,8 @@ interface CompactTool {
   t: string;  // procedural tip (when/why to use this tool)
 }
 
-/** Server-level domain hints for faster filtering */
-const SERVER_DOMAINS: Record<string, string> = {
-  kicad: "PCB / EDA design",
-  "chrome-devtools-mcp": "Browser / Web DevTools",
-  "autodesk-fusion": "3D CAD / Fusion 360",
-  "sequential-thinking": "Structured reasoning / analysis",
-  "google-developer-knowledge": "Google developer documentation",
-  "mcp-server-fetch": "HTTP / web fetching",
-  figma: "UI design / Figma",
-};
-
-function serverDomain(serverKey: string): string {
-  return SERVER_DOMAINS[serverKey] ?? "General";
+function serverDomain(serverKey: string, domains: Record<string, string>): string {
+  return domains[serverKey] ?? "General";
 }
 
 function paramHints(inputSchema: Record<string, unknown> | undefined): string {
@@ -73,6 +63,7 @@ REASONING FRAMEWORK:
 3. TOOL SELECTION — Which available tools best provide those capabilities? Match tool descriptions and parameter hints to the required operations.
 
 SELECTION GUIDELINES:
+- The user's task may be written in any language (Italian, French, German, Spanish, etc.). Mentally translate it to English first, then match against the English tool names and descriptions below.
 - Return tools that are directly necessary to accomplish the task. Exclude tools from irrelevant domains.
 - For simple tasks (single operation), 1-3 tools are usually enough.
 - For complex multi-step workflows (e.g. search → create → verify), include the complementary tools needed.
@@ -96,9 +87,11 @@ Examples:
       ? `\nAdditional Context / Hints: ${hints.join(", ")}`
       : "";
 
+  const domains = generateServerDomains(catalog);
+
   const groupedBlock = Array.from(grouped.entries())
     .map(([server, tools]) => {
-      const domain = serverDomain(server);
+      const domain = serverDomain(server, domains);
       const toolLines = tools
         .map((t) => {
           const paramStr = t.p ? ` ${t.p}` : "";

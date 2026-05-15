@@ -1,5 +1,40 @@
 # Changelog
 
+## [v0.3.5] - 2026-05-15
+
+### Added
+- **Dynamic domain keywords** (`src/ollama/keywords.ts`): keywords auto-generated from server keys, tool names, descriptions, and tips — zero hardcoded server names
+- **Cross-server keyword deduplication**: words appearing in multiple servers are removed to improve pre-filter specificity
+- **Multilingual translation** (`src/ollama/translator.ts`): non-English queries auto-translated via Ollama before keyword matching, with heuristic language detection (IT/ES/FR/DE/PT)
+- **Shared version module** (`src/version.ts`): single source of truth for package version (was duplicated across 4 files)
+- `lightmcp_servers.json` backup now excluded from catalog building — used only for uninstall restoration
+- Server `_removed` flag in backup: explicitly deleted servers are skipped during uninstall
+
+### Fixed
+- `resolveMcpServers()` cascade restructured: inline servers no longer block auto-detection
+- `mcpConfigPath` JSON array parsing: supports multi-path agent configs
+- Word-boundary regex: `_` and `-` now treated as boundaries (fixes `fusion_mcp_execute` matching)
+- Isolate mode: servers now added to `lightmcp_config.json` inline `mcpServers` so catalog builder can discover them
+- `server remove` no longer leaks servers back into catalog via backup re-reading
+- `antigravity_rule.md` template: hardcoded user path replaced with dynamic resolution during `setup`
+
+### Removed
+- Hardcoded `DOMAIN_KEYWORDS` map (5 servers) in `src/ollama/client.ts`
+- Hardcoded `SERVER_DOMAINS` map (7 servers) in `src/prompts/tool_selector.ts`
+- Hardcoded `knownServers` array (duplicated) in `src/cli/index.ts`
+- Hardcoded version fallbacks (`"0.1.0"`) across 4 files
+- Hardcoded bridge port fallback (now derived from config)
+- Kicad-specific tool name examples in tip generation prompts
+- `.env` API key and user paths verified never committed (`.gitignore` working correctly)
+
+### Changed
+- Tool selection prompt now instructs model to mentally translate non-English queries
+- Server remove now marks as `_removed` in backup instead of deleting
+- Server add clears `_removed` flag from backup
+- 235 tests across 21 files (all passing)
+
+---
+
 ## [v0.3.0] - 2026-05-14
 
 ### Added
