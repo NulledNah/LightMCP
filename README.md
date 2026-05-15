@@ -40,7 +40,7 @@ Agent -> tools/call("create_footprint", {...}) -> LightMCP -> KiCad MCP -> resul
 |-----------|---------|-------------|
 | GPU VRAM  | 4 GB    | 6 GB |
 | RAM       | 8 GB    | 16 GB |
-| CPU       | Any modern | Intel i5 or better |
+| CPU       | Any modern | Intel i5-11600K or better |
 | Disk      | 4 GB free | 8 GB free |
 
 The recommended model (`gemma3:4b`) uses approximately 2.5 GB VRAM. The previous default (`qwen2.5-coder:7b-instruct`) used 4.5 GB. Any Ollama model with reliable structured JSON output works -- see the FAQ.
@@ -97,13 +97,13 @@ node dist/cli/index.js status          # verify everything works
 
 | Feature | Linux | WSL2 | Windows |
 |---------|-------|------|---------|
-| `start` / `status` / `test` | [x] | [x] | [x] |
-| `build-catalog` | [x] | [x] | [x] |
-| `call` / `get-tools` | [x] | [x] | [x] |
-| `server` (add/remove/list/disable/enable) | [x] | [x] | [x] |
-| `setup` (auto-install Ollama) | manual | manual | [x] `winget` |
-| Task Scheduler auto-start | -- | -- | [x] |
-| 235 unit/integration tests | [x] | [x] | [x] |
+| `start` / `status` / `test` | YES | YES | YES |
+| `build-catalog` | YES | YES | YES |
+| `call` / `get-tools` | YES | YES | YES |
+| `server` (add/remove/list/disable/enable) | YES | YES | YES |
+| `setup` (auto-install Ollama) | manual | manual | YES `winget` |
+| Task Scheduler auto-start | NO | NO | YES |
+| 235 unit/integration tests | YES | YES | YES |
 
 ### Manual agent configuration
 
@@ -151,39 +151,68 @@ lightmcp build-catalog
 
 ## Architecture
 
-```
-                         +------------------+
-                         |   AI Agent       |
-                         |  (only LightMCP) |
-                         +--------+---------+
-                                  |
-                        MCP Streamable HTTP
-                                  |
-                         +--------v---------+
-                         |   LightMCP       |
-                         |  localhost:3131   |
-                         |                  |
-                         |  - Semantic tool |
-                         |    selection     |
-                         |  - Dynamic reg.  |
-                         |  - Proxy pool    |
-                         |  - Tool catalog  |
-                         +----+------+------+
-                              |      |
-                    REST API  |      | MCP client
-                              |      |
-                   +----------v-+  +-v-----------+
-                   | Ollama     |  | Downstream   |
-                   | localhost  |  | MCP Servers  |
-                   | :11434     |  |              |
-                   |            |  | Kicad (stdio)|
-                   | gemma3:4b  |  | DevTools     |
-                   | idle 120s  |  | Fusion 360   |
-                   +------------+  | ...          |
-                                   +--------------+
+```mermaid
+sequenceDiagram
+    participant A as AI Agent
+    participant L as LightMCP
+    participant O as Ollama (gemma3:4b)
+    participant D as Downstream MCP
+
+    A->>L: tools/list
+    L-->>A: [get_task_tools]
+
+    A->>L: tools/call("get_task_tools", {task})
+    L->>L: Detect language (IT/ES/FR/DE/PT)
+    L->>O: Translate if non-English
+    L->>L: Pre-filter catalog<br/>(dynamic keywords)
+    L->>O: Select relevant tools
+    O-->>L: [tool_a, tool_b, ...]
+    L-->>A: Selected tools summary
+
+    Note over L: Dynamically registers<br/>selected tools
+
+    L-->>A: notifications/tools/list_changed
+    A->>L: tools/list
+    L-->>A: [tool_a, tool_b, ...]
+
+    A->>L: tools/call("tool_a", args)
+    L->>D: Forward call
+    D-->>L: Result
+    L-->>A: Result
 ```
 
-LightMCP exposes a single `get_task_tools` endpoint. The agent calls it with a task description in any language (Italian, Spanish, German, etc.). LightMCP auto-translates non-English queries, pre-filters the catalog by domain keywords dynamically extracted from the actual server tools, and sends only the relevant subset to Ollama for semantic selection.
+```mermaid
+flowchart TB
+    subgraph Agent["AI Agent"]
+        A1["Only LightMCP in config"]
+        A2["Calls tools through LightMCP"]
+    end
+
+    subgraph LightMCP["LightMCP (localhost:3131)"]
+        L1["get_task_tools<br/>Ollama semantic selection"]
+        L2["Dynamic tool registration<br/>on McpServer singleton"]
+        L3["Proxy pool<br/>forward tools/call"]
+        L4["Tool catalog<br/>auto-built from all servers"]
+    end
+
+    subgraph Ollama["Ollama (localhost:11434)"]
+        O1["gemma3:4b"]
+        O2["Starts on demand<br/>Idle timeout: 120s"]
+    end
+
+    subgraph Downstream["Downstream MCP Servers"]
+        D1["Kicad (stdio)"]
+        D2["DevTools (HTTP)"]
+        D3["Fusion 360 (HTTP)"]
+        D4["..."]
+    end
+
+    Agent <-->|"MCP Streamable HTTP"| LightMCP
+    LightMCP -->|"REST API"| Ollama
+    LightMCP <-->|"MCP client"| Downstream
+```
+
+LightMCP exposes a single `get_task_tools` endpoint. The agent calls it with a task description in any language. LightMCP auto-detects and translates non-English queries via Ollama, pre-filters the catalog by domain keywords dynamically extracted from the actual server tools, and sends only the relevant subset for semantic tool selection.
 
 ---
 
