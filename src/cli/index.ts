@@ -49,6 +49,15 @@ function cleanTip(raw: string, toolName: string): string {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const version = await getVersion();
 
+/** Reject paths containing traversal sequences. Resolves relative to cwd. */
+function safePath(inputPath: string): string {
+  const resolved = path.resolve(process.cwd(), inputPath);
+  if (resolved.includes(".." + path.sep) || resolved.includes(path.sep + "..")) {
+    throw new Error(`Path traversal detected: ${inputPath}`);
+  }
+  return resolved;
+}
+
 const program = new Command();
 
 program
@@ -316,7 +325,8 @@ program
 
     if (opts.file) {
       const { readFile } = await import("node:fs/promises");
-      const raw = await readFile(opts.file, "utf-8");
+      const filePath = safePath(opts.file);
+      const raw = await readFile(filePath, "utf-8");
       toolArgs = JSON.parse(raw);
     } else {
       const effectiveArgs = rawArgs.slice(argsStart);
@@ -381,7 +391,8 @@ program
             if (opts.output) {
               const { writeFile } = await import("node:fs/promises");
               const buf = Buffer.from(block.data, "base64");
-              await writeFile(opts.output, buf);
+              const outputPath = safePath(opts.output);
+              await writeFile(outputPath, buf);
               process.stdout.write(`[OK] Image saved to ${opts.output}\n`);
             } else {
               process.stdout.write(block.data);

@@ -27,6 +27,23 @@ function killProcess(proc: ChildProcess): void {
   }
 }
 
+/** Returns a filtered copy of process.env without dangerous keys
+ *  that could be exploited via mcpServers config env overrides. */
+const DANGEROUS_ENV_KEYS = new Set([
+  "PATH", "Path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH", "NODE_OPTIONS", "NODE_PATH",
+]);
+
+function safeProcessEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const [key, val] of Object.entries(process.env)) {
+    if (!DANGEROUS_ENV_KEYS.has(key)) {
+      env[key] = val;
+    }
+  }
+  return env;
+}
+
 // ── MCP JSON-RPC helpers ─────────────────────────────────────
 
 interface JsonRpcRequest {
@@ -58,7 +75,7 @@ async function queryToolsViaStdio(
 ): Promise<ToolsDef[]> {
   const command = cfg.command!;
   const args = cfg.args ?? [];
-  const env = { ...process.env, ...(cfg.env ?? {}) };
+  const env = { ...safeProcessEnv(), ...(cfg.env ?? {}) };
   const version = await getVersion();
 
   return new Promise((resolve, _reject) => {

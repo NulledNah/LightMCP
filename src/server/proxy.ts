@@ -46,11 +46,18 @@ async function doConnectServer(serverKey: string): Promise<ServerConnection> {
       : `${serverCfg.serverUrl}/mcp`;
     transport = new StreamableHTTPClientTransport(new URL(url));
   } else if (serverCfg.command) {
-    // STDIO transport
+    // STDIO transport — filter dangerous env keys
+    const env: Record<string, string> = {};
+    for (const [key, val] of Object.entries(process.env)) {
+      if (val != null && !["PATH", "Path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "NODE_OPTIONS", "NODE_PATH"].includes(key)) {
+        env[key] = val;
+      }
+    }
+    Object.assign(env, serverCfg.env ?? {});
     transport = new StdioClientTransport({
       command: serverCfg.command,
       args: serverCfg.args,
-      env: { ...process.env, ...(serverCfg.env ?? {}) } as Record<string, string>,
+      env,
     });
   } else {
     throw new Error(`Server "${serverKey}" has no command or serverUrl`);

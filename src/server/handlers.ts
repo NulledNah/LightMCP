@@ -34,6 +34,20 @@ let _registeredTools: RegisteredTool[] = [];
 let _lastTrackedNames: string[] = [];
 let _registrationLock: Promise<void> = Promise.resolve();
 
+/** Serializes concurrent tool registrations so two get_task_tools
+ *  calls cannot interleave register/unregister cycles. */
+async function withRegistrationLock(fn: () => Promise<void>): Promise<void> {
+  const prev = _registrationLock;
+  let release: () => void;
+  _registrationLock = new Promise<void>((r) => { release = r; });
+  await prev;
+  try {
+    await fn();
+  } finally {
+    release!();
+  }
+}
+
 /** Loose input schema for proxied tools — accepts any object. */
 const PassthroughSchema = z.object({}).passthrough();
 
@@ -93,11 +107,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
 
   // 5. Dynamically register selected tools on the McpServer
   //    so the agent can call them through LightMCP.
-  const previousLock = _registrationLock;
-  let releaseLock: () => void;
-  _registrationLock = new Promise<void>((r) => { releaseLock = r; });
-  await previousLock;
-  try {
+  await withRegistrationLock(async () => {
     const { getMcpServer, trackTool, untrackTool } = await import("./mcp_server.js");
     const { callTool } = await import("./proxy.js");
     const mcpServer = getMcpServer();
@@ -139,11 +149,9 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     if (validEntries.length > 0) {
       console.log(`  [REG] Registered ${validEntries.length} tool(s) for agent use`);
     }
-  } catch (err) {
+  }).catch((err) => {
     console.error("Failed to register tools on McpServer:", err);
-  } finally {
-    releaseLock!();
-  }
+  });
 
   // 6. Return summary as text content
   const result = {

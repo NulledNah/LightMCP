@@ -53,29 +53,42 @@ function resolveConfigPath(): string {
 }
 
 let _config: LightMCPConfig | null = null;
+let _configPromise: Promise<LightMCPConfig> | null = null;
 
 export async function loadConfig(): Promise<LightMCPConfig> {
   if (_config) return _config;
-  const configPath = resolveConfigPath();
-  const raw = await readFile(configPath, "utf-8");
-  let parsed: unknown;
+  if (!_configPromise) {
+    _configPromise = doLoadConfig();
+  }
+  return _configPromise;
+}
+
+async function doLoadConfig(): Promise<LightMCPConfig> {
   try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error(`Failed to parse ${CONFIG_FILENAME}: invalid JSON`);
+    const configPath = resolveConfigPath();
+    const raw = await readFile(configPath, "utf-8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`Failed to parse ${CONFIG_FILENAME}: invalid JSON`);
+    }
+    const result = LightMCPConfigSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `Invalid ${CONFIG_FILENAME}: ${result.error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")}`
+      );
+    }
+    _config = result.data;
+    return _config;
+  } finally {
+    _configPromise = null;
   }
-  const result = LightMCPConfigSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(
-      `Invalid ${CONFIG_FILENAME}: ${result.error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")}`
-    );
-  }
-  _config = result.data;
-  return _config;
 }
 
 export function invalidateConfig(): void {
   _config = null;
+  _configPromise = null;
 }
 
 /** Resolves the Antigravity mcp_config.json path */
@@ -110,8 +123,15 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
   // 1. Env var override (highest priority)
   const envPath = process.env.LIGHTMCP_MCP_CONFIG;
   if (envPath && existsSync(envPath)) {
-    const mcp = await loadMcpConfig(envPath);
-    return mcp.mcpServers;
+    // Validate path is under user's home directory
+    const homedir = os.homedir();
+    const resolvedEnvPath = path.resolve(envPath);
+    if (!resolvedEnvPath.startsWith(homedir + path.sep) && resolvedEnvPath !== homedir) {
+      console.warn(`[WARN] $LIGHTMCP_MCP_CONFIG path outside home directory — ignored: ${envPath}`);
+    } else {
+      const mcp = await loadMcpConfig(envPath);
+      return mcp.mcpServers;
+    }
   }
 
   // Build merged result by cascading all sources

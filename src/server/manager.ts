@@ -225,7 +225,7 @@ export async function removeServer(
           backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
           writeFileSync(backupPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
         }
-      } catch { /* skip */ }
+      } catch { /* skip — backup write failure is non-fatal */ }
     }
 
     // Also mark in standalone Antigravity backup
@@ -237,7 +237,7 @@ export async function removeServer(
           backup.mcpServers[name] = { ...backup.mcpServers[name], _removed: true };
           writeFileSync(standaloneBackup, JSON.stringify(backup, null, 2) + "\n", "utf-8");
         }
-      } catch { /* skip */ }
+      } catch { /* skip — standalone backup write failure is non-fatal */ }
     }
   }
 
@@ -300,7 +300,7 @@ export async function uninstallAll(): Promise<string[]> {
           writeFileSync(agent.configPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
           messages.push(`[OK] Restored ${agent.name} to original config`);
         } catch {
-          messages.push(`[WARN] Failed to restore ${agent.name}`);
+          console.warn(`  [WARN] Failed to restore ${agent.name} from backup`);
         }
       } else {
         // Remove only lightmcp entry
@@ -313,12 +313,12 @@ export async function uninstallAll(): Promise<string[]> {
             }
             messages.push(`[OK] Removed LightMCP from ${agent.name}`);
           } catch {
-            messages.push(`[WARN] Could not update ${agent.name} config`);
+            console.warn(`  [WARN] Could not update ${agent.name} config`);
           }
         }
       }
     }
-  } catch { /* skip */ }
+  } catch { /* skip — agent detection failed, uninstall continues */ }
 
   // 2. Clean up generated files
   const { rm } = await import("node:fs/promises");

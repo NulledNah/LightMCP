@@ -156,7 +156,7 @@
   "search_symbols": "When you need to locate a specific component's symbol by name, LCSC ID, description, manufacturer, MPN, or category",
   "search_tools": "When you need to quickly find a specific tool in your KiCAD environment by keyword.",
   "select_page": "When you need to set the current page as the context for subsequent actions in your browser development workflow.",
-  "sequentialthinking": "When you need to deeply analyze a problem step-by-step, considering multiple perspectives and evolving insights.",
+  "sequentialthinking": "When tackling intricate problems requiring flexible, evolving thought processes.",
   "set_active_layer": "When you need to switch to a specific PCB layer for editing or inspection.",
   "set_board_size": "When you need to adjust the size of your PCB board to fit specific requirements.",
   "set_design_rules": "When you need to ensure your PCB meets specific design standards for clearance, track width, vias, and courtyard",
