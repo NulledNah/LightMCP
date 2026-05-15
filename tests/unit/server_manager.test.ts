@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { listServers, addServer, removeServer, disableServer, enableServer } from '../../src/server/manager.js';
+import { listServers, addServer, removeServer, disableServer, enableServer, uninstallAll } from '../../src/server/manager.js';
 
 vi.mock('../../src/config.js', () => ({
   loadConfig: vi.fn(),
@@ -14,19 +14,26 @@ vi.mock('../../src/catalog/builder.js', () => ({
   buildCatalog: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock('../../src/ollama/manager.js', () => ({
+  stopOllama: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../../src/setup/scanner.js', () => ({
   detectAgents: vi.fn().mockReturnValue([]),
 }));
 
-vi.mock('node:fs', () => ({
+const mockFs = vi.hoisted(() => ({
   existsSync: vi.fn().mockReturnValue(false),
   readFileSync: vi.fn().mockReturnValue('{}'),
   writeFileSync: vi.fn(),
 }));
 
+vi.mock('node:fs', () => mockFs);
+
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
   rename: vi.fn().mockResolvedValue(undefined),
+  rm: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { loadConfig } from '../../src/config.js';
@@ -182,6 +189,77 @@ describe('server manager', () => {
       const result = await enableServer('srv');
       expect(result).toContain('[OK]');
       expect(result).toContain('enabled');
+    });
+  });
+
+  // ---- uninstallAll ----
+
+  describe('uninstallAll', () => {
+    it('should restore agent from backup and skip _removed servers', async () => {
+      const backupContent = {
+        mcpServers: {
+          kicad: { command: 'python' },
+          chrome: { serverUrl: 'http://localhost:9222', _removed: true },
+        },
+      };
+
+      const mockAgent = {
+        name: 'Antigravity',
+        configPath: '/fake/antigravity/mcp_config.json',
+        configExists: true,
+        hasLightMCP: true,
+      };
+
+      vi.mocked(detectAgents).mockReturnValue([mockAgent as any]);
+      vi.mocked(mockFs.existsSync).mockImplementation((p: any) => {
+        if (typeof p === 'string' && p.includes('lightmcp_servers.json')) return true;
+        if (typeof p === 'string' && (p.includes('tool_catalog.json') || p.includes('tool_tips.json'))) return false;
+        return false;
+      });
+      vi.mocked(mockFs.readFileSync).mockImplementation((p: any) => {
+        if (typeof p === 'string' && p.includes('lightmcp_servers.json')) {
+          return JSON.stringify(backupContent);
+        }
+        return '{}';
+      });
+
+      const results = await uninstallAll();
+
+      expect(results).toContain('[OK] Restored Antigravity to original config');
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
+
+      // Verify _removed server was filtered out
+      const writeCalls = vi.mocked(mockFs.writeFileSync).mock.calls;
+      const agentWrite = writeCalls.find((c: any[]) =>
+        typeof c[0] === 'string' && c[0].includes('mcp_config.json')
+      );
+      const writtenContent = JSON.parse(agentWrite?.[1] as string ?? '{}');
+      expect(writtenContent.mcpServers).toBeDefined();
+      expect(Object.keys(writtenContent.mcpServers)).toContain('kicad');
+      expect(Object.keys(writtenContent.mcpServers)).not.toContain('chrome');
+    });
+
+    it('should remove lightmcp from agents without backup', async () => {
+      const mockAgent = {
+        name: 'Claude Code',
+        configPath: '/fake/.claude.json',
+        configExists: true,
+        hasLightMCP: true,
+      };
+
+      vi.mocked(detectAgents).mockReturnValue([mockAgent as any]);
+      vi.mocked(mockFs.existsSync).mockImplementation((p: any) => {
+        if (typeof p === 'string' && (p.includes('tool_catalog.json') || p.includes('tool_tips.json'))) return false;
+        return false;
+      });
+      vi.mocked(mockFs.readFileSync).mockReturnValue(JSON.stringify({
+        mcpServers: { lightmcp: { type: 'http', url: 'http://127.0.0.1:3131/mcp' } },
+      }));
+
+      const results = await uninstallAll();
+
+      expect(results).toContain('[OK] Removed LightMCP from Claude Code');
+      expect(mockFs.writeFileSync).toHaveBeenCalled();
     });
   });
 });

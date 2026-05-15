@@ -183,9 +183,27 @@ export async function autoPopulateConfig(discoveredServers: Record<string, impor
     }
   } catch { /* scanner not available */ }
 
-  // Merge with user-specified path
+  // Merge with user-specified path(s)
   if (cfg.mcpConfigPath) {
-    paths.unshift(cfg.mcpConfigPath);
+    // cfg.mcpConfigPath may be a JSON-encoded array (from a previous
+    // autoPopulateConfig run) or a plain file path string.
+    try {
+      const parsed = JSON.parse(cfg.mcpConfigPath);
+      if (Array.isArray(parsed)) {
+        for (const p of parsed) {
+          if (typeof p === "string" && !paths.includes(p)) {
+            paths.unshift(p);
+          }
+        }
+      } else if (typeof parsed === "string") {
+        paths.unshift(parsed);
+      }
+    } catch {
+      // Not valid JSON — treat as plain path string
+      if (!paths.includes(cfg.mcpConfigPath)) {
+        paths.unshift(cfg.mcpConfigPath);
+      }
+    }
   }
 
   // Merge discovered servers with inline servers
