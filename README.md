@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
 [![Ollama](https://img.shields.io/badge/Ollama-required-blue)](https://ollama.com)
-[![Version](https://img.shields.io/badge/version-0.3.5-orange)](https://github.com/NulledNah/LightMCP/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-orange)](https://github.com/NulledNah/LightMCP/releases)
 
 ---
 
@@ -27,10 +27,12 @@ Agent -> tools/call("create_footprint", {...}) -> LightMCP -> KiCad MCP -> resul
 - **On-demand** -- Ollama starts only when needed, shuts down after idle timeout
 - **Auto-updating catalog** -- watches MCP config files and rebuilds on change
 - **Transparent proxy** -- agent calls tools through LightMCP as if they were its own
-- **Multilingual** -- detects non-English queries and auto-translates them before tool matching
+- **Multilingual** -- detects non-English queries and auto-translates them before tool matching (v2: keywords matched against original + translated)
 - **Dynamic server discovery** -- no hardcoded server names, keywords generated from actual tool catalogs
 - **Server management** -- add, remove, disable, enable MCP servers from the CLI
 - **Clean uninstall** -- restores all original agent configurations from backup
+- **Cross-platform** -- Windows and Linux with unattended `setup` (winget on Windows, curl on Linux)
+- **Hardened** -- rate limiting, CORS, prompt injection guard, path traversal protection, env injection filtering
 
 ---
 
@@ -78,21 +80,19 @@ lightmcp start
 
 ### Linux / WSL2
 
-LightMCP is fully functional on Linux and WSL2 with the exception of `setup` (which uses `winget` on Windows). On Linux, install prerequisites manually:
+LightMCP is fully functional on Linux and WSL2. The `lightmcp setup` command handles Ollama installation automatically via curl:
 
 ```bash
-# Install Ollama
+# Full unattended setup (same as Windows)
+node dist/cli/index.js setup
+
+# Or manually:
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull gemma3:4b
-
-# Clone, install, build as usual
 git clone https://github.com/NulledNah/LightMCP.git && cd LightMCP
 npm install && npm run build
-
-# Skip 'lightmcp setup' -- use individual commands instead:
-node dist/cli/index.js build-catalog   # build tool catalog
-node dist/cli/index.js start           # start the router
-node dist/cli/index.js status          # verify everything works
+node dist/cli/index.js build-catalog
+node dist/cli/index.js start
 ```
 
 | Feature | Linux | WSL2 | Windows |
@@ -101,8 +101,8 @@ node dist/cli/index.js status          # verify everything works
 | `build-catalog` | YES | YES | YES |
 | `call` / `get-tools` | YES | YES | YES |
 | `server` (add/remove/list/disable/enable) | YES | YES | YES |
-| `setup` (auto-install Ollama) | manual | manual | YES `winget` |
-| Task Scheduler auto-start | NO | NO | YES |
+| `setup` (auto-install Ollama) | YES `curl` | YES `curl` | YES `winget` |
+| Startup auto-start | systemd | systemd | Task Scheduler |
 | 237 unit/integration tests | YES | YES | YES |
 
 ### Client Compatibility
@@ -110,10 +110,10 @@ node dist/cli/index.js status          # verify everything works
 | AI Agent | Status | Transport | Notes |
 |----------|--------|-----------|-------|
 | **Antigravity** (VS Code) | Working | STDIO bridge via `mcp_config.json` | Fully tested. Handles both English and multilingual queries. |
-| **claude\_code** | Not yet tested | HTTP `type: "http"` | Config path: `~/.claude.json`. Should work with `http://127.0.0.1:3131/mcp`. |
-| **Cursor** | Not yet tested | HTTP `url` | Config path: `~/.cursor/mcp.json`. Should work with `http://127.0.0.1:3131/mcp`. |
-| **openCode CLI** | Pending upstream fix | `type: "remote"` + `oauth: false` | Config loaded correctly. Connection fails due to opencode-ai/opencode [issue #8434](https://github.com/anomalyco/opencode/issues/8434) (Windows STDIO) and [issue #16449](https://github.com/anomalyco/opencode/issues/16449) (MCP runtime). |
-| **openCode Desktop** | Pending upstream fix | `type: "remote"` + `oauth: false` | Same root cause as CLI. Server appears in MCP list but cannot connect. Tracked upstream in opencode-ai/opencode. |
+| **claude\_code** | Ready (pending testing) | HTTP `type: "http"` | Config path: `~/.claude.json`. Uses `http://127.0.0.1:3131/mcp`. |
+| **Cursor** | Ready (pending testing) | HTTP `url` | Config path: `~/.cursor/mcp.json`. Uses `http://127.0.0.1:3131/mcp`. |
+| **openCode CLI** | Ready (pending testing) | `type: "remote"` + `oauth: false` | Config path: `~/.config/opencode/opencode.json`. v0.4.0 refactored `initialize` for SDK-native Streamable HTTP sessions. Previously blocked by opencode-ai/opencode [issue #8434](https://github.com/anomalyco/opencode/issues/8434). |
+| **openCode Desktop** | Ready (pending testing) | `type: "remote"` + `oauth: false` | Same config path as CLI. Uses standard Streamable HTTP sessions now supported in v0.4.0. |
 
 For openCode, the correct config file is `~/.config/opencode/opencode.json`:
 
@@ -294,6 +294,7 @@ Edit `lightmcp_config.json` in the project root:
     "watchMcpConfig": true
   },
   "mcpConfigPath": null,
+  "mcpConfigPaths": [],
   "mcpServers": {}
 }
 ```
@@ -311,7 +312,8 @@ Edit `lightmcp_config.json` in the project root:
 | `catalog.activeOnly` | `false` | Only include tools from enabled servers |
 | `catalog.outputPath` | `tool_catalog.json` | Where to persist the tool catalog |
 | `catalog.watchMcpConfig` | `true` | Auto-rebuild catalog on config changes |
-| `mcpConfigPath` | null | Override path to agent MCP config (JSON array of paths supported) |
+| `mcpConfigPath` | null | Legacy field (deprecated) — auto-normalized into `mcpConfigPaths` on load |
+| `mcpConfigPaths` | `[]` | Array of agent MCP config file paths (replaces JSON-encoded `mcpConfigPath`) |
 | `mcpServers` | `{}` | Inline MCP server definitions. Populated automatically by isolate mode. |
 
 ### Inline server configuration
@@ -359,10 +361,10 @@ Detected agents and their MCP config paths:
 
 | Agent | Config Path |
 |-------|------------|
-| Antigravity | `~/.gemini/antigravity/mcp_config.json` or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` |
+| Antigravity | `~/.gemini/antigravity/mcp_config.json` or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` (Windows) or `~/.config/Code/User/globalStorage/google.antigravity/mcp_config.json` (Linux) |
 | Claude Code | `~/.claude.json` |
-| openCode CLI | `~/.opencode.json` |
-| openCode Desktop | `%APPDATA%\ai.opencode.desktop\opencode.global.dat` |
+| openCode CLI | `~/.config/opencode/opencode.json` |
+| openCode Desktop | `~/.config/opencode/opencode.json` (shared with CLI) |
 | Cursor | `~/.cursor/mcp.json` |
 
 ---

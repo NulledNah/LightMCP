@@ -11,6 +11,9 @@ import os from "node:os";
 const __agentDir = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE_PATH = path.resolve(__agentDir, "..", "server", "bridge.js");
 
+const isWindows = process.platform === "win32";
+const homeDir = os.homedir();
+
 /** Resolve the lightmcp_config.json path (mirrors config.ts) */
 function resolveLightMCPConfigPath(): string {
   const CONFIG_FILENAME = "lightmcp_config.json";
@@ -23,14 +26,23 @@ function resolveLightMCPConfigPath(): string {
   return path.join(__agentDir, "..", CONFIG_FILENAME);
 }
 
-/** Resolve Antigravity MCP config path (standalone vs VS Code extension install) */
+/** Resolve Antigravity MCP config path (cross-platform) */
 function resolveAntigravityConfigPath(): string {
-  const standalone = path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json");
-  const vscode = path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
-  // Prefer VS Code path if the directory exists (most common for current Antigravity)
-  if (existsSync(path.dirname(vscode))) return vscode;
+  const standalone = path.join(homeDir, ".gemini", "antigravity", "mcp_config.json");
+
+  if (isWindows) {
+    const vscode = path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
+    if (existsSync(path.dirname(vscode))) return vscode;
+  } else {
+    // Linux/macOS: VS Code or VSCodium global storage
+    const vscodeLinux = path.join(homeDir, ".config", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
+    const vscodiumLinux = path.join(homeDir, ".config", "VSCodium", "User", "globalStorage", "google.antigravity", "mcp_config.json");
+    if (existsSync(path.dirname(vscodeLinux))) return vscodeLinux;
+    if (existsSync(path.dirname(vscodiumLinux))) return vscodiumLinux;
+  }
+
   if (existsSync(path.dirname(standalone))) return standalone;
-  return vscode; // default to VS Code path
+  return standalone; // default to standalone path
 }
 
 // ── Agent definitions ─────────────────────────────────────
@@ -54,11 +66,23 @@ const AGENTS: AgentDef[] = [
   {
     name: "Antigravity",
     description: "Google Gemini AI IDE",
-    detectPaths: [
-      path.join(os.homedir(), ".gemini", "antigravity"),
-      path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Antigravity"),
-      path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity"),
-    ],
+    detectPaths: (() => {
+      const paths = [
+        path.join(homeDir, ".gemini", "antigravity"),
+      ];
+      if (isWindows) {
+        paths.push(
+          path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Antigravity"),
+          path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity"),
+        );
+      } else {
+        paths.push(
+          path.join(homeDir, ".config", "Code", "User", "globalStorage", "google.antigravity"),
+          path.join(homeDir, ".config", "VSCodium", "User", "globalStorage", "google.antigravity"),
+        );
+      }
+      return paths;
+    })(),
     configPath: resolveAntigravityConfigPath(),
     mcpServersKey: "mcpServers",
     lightMCPEntry: { command: "node", args: [BRIDGE_PATH] },
@@ -68,10 +92,10 @@ const AGENTS: AgentDef[] = [
     name: "Claude Code",
     description: "Anthropic Claude in terminal",
     detectPaths: [
-      path.join(os.homedir(), ".claude.json"),
-      path.join(os.homedir(), ".claude"),
+      path.join(homeDir, ".claude.json"),
+      path.join(homeDir, ".claude"),
     ],
-    configPath: path.join(os.homedir(), ".claude.json"),
+    configPath: path.join(homeDir, ".claude.json"),
     mcpServersKey: "mcpServers",
     lightMCPEntry: { type: "http", url: "http://127.0.0.1:3131/mcp" },
     serverEntryStyle: "mcpServers",
@@ -80,10 +104,10 @@ const AGENTS: AgentDef[] = [
     name: "openCode CLI",
     description: "openCode terminal AI agent",
     detectPaths: [
-      path.join(os.homedir(), ".config", "opencode"),
-      path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+      path.join(homeDir, ".config", "opencode"),
+      path.join(homeDir, ".config", "opencode", "opencode.json"),
     ],
-    configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+    configPath: path.join(homeDir, ".config", "opencode", "opencode.json"),
     mcpServersKey: "mcp",
     lightMCPEntry: { type: "remote", url: "http://127.0.0.1:3131/mcp", enabled: true },
     serverEntryStyle: "mcp",
@@ -91,10 +115,20 @@ const AGENTS: AgentDef[] = [
   {
     name: "openCode Desktop",
     description: "openCode desktop app",
-    detectPaths: [
-      path.join(process.env.APPDATA ?? "", "ai.opencode.desktop"),
-    ],
-    configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+    detectPaths: (() => {
+      const paths: string[] = [];
+      if (isWindows) {
+        paths.push(path.join(process.env.APPDATA ?? "", "ai.opencode.desktop"));
+      } else {
+        paths.push(
+          path.join(homeDir, ".config", "opencode-desktop"),
+          path.join(homeDir, ".local", "share", "opencode-desktop"),
+        );
+      }
+      paths.push(path.join(homeDir, ".config", "opencode", "opencode.json"));
+      return paths;
+    })(),
+    configPath: path.join(homeDir, ".config", "opencode", "opencode.json"),
     mcpServersKey: "mcp",
     lightMCPEntry: { type: "remote", url: "http://127.0.0.1:3131/mcp", enabled: true },
     serverEntryStyle: "mcp",
@@ -103,9 +137,9 @@ const AGENTS: AgentDef[] = [
     name: "Cursor",
     description: "Cursor AI editor",
     detectPaths: [
-      path.join(os.homedir(), ".cursor"),
+      path.join(homeDir, ".cursor"),
     ],
-    configPath: path.join(os.homedir(), ".cursor", "mcp.json"),
+    configPath: path.join(homeDir, ".cursor", "mcp.json"),
     mcpServersKey: "mcpServers",
     lightMCPEntry: { url: "http://127.0.0.1:3131/mcp" },
     serverEntryStyle: "mcpServers",

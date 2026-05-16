@@ -27,6 +27,68 @@ let _lastActivity: number = Date.now();
 const _toolList: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
 const _toolMeta = new Map<string, string>(); // toolName → serverKey
 
+// ── Security: In-memory rate limiter ──────────────────────
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 300;
+const _rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimiter(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const key = req.ip ?? req.socket.remoteAddress ?? "unknown";
+  const now = Date.now();
+  let entry = _rateLimitMap.get(key);
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    _rateLimitMap.set(key, entry);
+  } else {
+    entry.count++;
+  }
+  res.setHeader("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+  res.setHeader("X-RateLimit-Remaining", String(Math.max(0, RATE_LIMIT_MAX_REQUESTS - entry.count)));
+  res.setHeader("X-RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
+  if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+  // Periodic cleanup of expired entries (every 100 requests)
+  if (Math.random() < 0.01) {
+    for (const [k, v] of _rateLimitMap) {
+      if (now >= v.resetAt) _rateLimitMap.delete(k);
+    }
+  }
+  next();
+}
+
+// ── Security: CORS middleware ─────────────────────────────
+function corsMiddleware(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Accept, Mcp-Session-Id, Authorization");
+  res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+}
+
+// ── Security: Prompt injection guard ──────────────────────
+const INJECTION_PATTERNS = [
+  /system:\s*/gi,           // Attempts to define a system role
+  /<\|im_start\|>/gi,        // ChatML injection
+  /<\|im_end\|>/gi,
+  /\[INST\]/gi,              // Llama-style injection
+  /\[SYS\]/gi,
+  /<<SYS>>/gi,
+  /ignore (all |previous )?instructions/i,  // Instruction override
+  /disregard previous/i,
+  /you are now/i,            // Role reassignment
+  /forget (everything|all)/i,
+];
+
+function containsInjection(text: string): boolean {
+  return INJECTION_PATTERNS.some((p) => p.test(text));
+}
+
 /** Track a tool for the tools/list compatibility handler */
 export function trackTool(name: string, description: string, serverKey: string, inputSchema?: Record<string, unknown>): void {
   const idx = _toolList.findIndex(t => t.name === name);
@@ -54,6 +116,9 @@ export async function createMcpServer(): Promise<express.Application> {
   const version = await getVersion();
 
   const app = express();
+  app.disable("x-powered-by");
+  app.use(corsMiddleware);
+  app.use(rateLimiter);
   app.use(express.json({ limit: "4mb" }));
 
   // Inject missing Accept header for non-compliant MCP clients
@@ -84,9 +149,9 @@ export async function createMcpServer(): Promise<express.Application> {
     });
   });
 
-  // ── Singleton MCP transport (stateless — compatible with all agents) ──
+  // ── Singleton MCP transport (stateful — SDK manages sessions for Streamable HTTP clients) ──
   _transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
+    sessionIdGenerator: () => randomUUID(),
   });
 
   _mcpServer = new McpServer({ name: "lightmcp", version });
@@ -124,44 +189,43 @@ export async function createMcpServer(): Promise<express.Application> {
 
   // ── MCP endpoints ─────────────────────────────────────────
   //
-  // The SDK transport handles tools/list, tools/call, etc.
-  // We only intercept initialize to return clean JSON (not SSE).
+  // Dual-mode: SDK transport handles stateful Streamable HTTP sessions
+  // (openCode, Claude Code, Cursor). Custom handlers support stateless
+  // Antigravity which spawns fresh processes per call without sessions.
 
   app.post("/mcp", async (req, res) => {
     try {
       const body = req.body;
       const method = body?.method;
+      const hasSession = !!req.headers["mcp-session-id"];
 
-      // Intercept initialize: return clean JSON with session (Antigravity-style)
+      // initialize: always delegate to SDK for proper session management.
+      // The SDK generates a session ID and returns it in Mcp-Session-Id header.
       if (method === "initialize") {
-        const sessionId = randomUUID();
-        res.setHeader("Mcp-Session-Id", sessionId);
-        res.json({
-          jsonrpc: "2.0",
-          id: body.id,
-          result: {
-            protocolVersion: "2025-03-26",
-            capabilities: { tools: {} },
-            serverInfo: { name: "lightmcp", version },
-          },
-        });
+        await _transport!.handleRequest(req, res, body);
         return;
       }
 
-      // Handle tools/list without session (Antigravity spawns new process per call)
-      if (method === "tools/list" && !req.headers["mcp-session-id"]) {
+      // Stateless Antigravity: tools/list without session header
+      if (method === "tools/list" && !hasSession) {
         const tools = [..._toolList];
         res.json({ jsonrpc: "2.0", id: body.id, result: { tools } });
         return;
       }
 
-      // Handle tools/call without session (CLI call command skips initialize)
-      if (method === "tools/call" && !req.headers["mcp-session-id"]) {
+      // Stateless Antigravity & CLI: tools/call without session header
+      if (method === "tools/call" && !hasSession) {
         const toolName = body?.params?.name;
         const toolArgs = body?.params?.arguments ?? {};
 
         // get_task_tools: handle directly
         if (toolName === "get_task_tools") {
+          const task = String(toolArgs.task ?? "");
+          const hints = Array.isArray(toolArgs.hints) ? toolArgs.hints.map(String) : [];
+          if (containsInjection(task) || hints.some((h: string) => containsInjection(h))) {
+            res.json({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: JSON.stringify({ selected: 0, tools: [], total: 0 }) }] } });
+            return;
+          }
           const result = await handleGetTools(toolArgs as Parameters<typeof handleGetTools>[0]);
           res.json({ jsonrpc: "2.0", id: body.id, result });
           return;
@@ -192,7 +256,8 @@ export async function createMcpServer(): Promise<express.Application> {
         return;
       }
 
-      // All other MCP methods: delegate to SDK transport
+      // Stateful Streamable HTTP: delegate to SDK transport
+      // (handles tools/list, tools/call, notifications, etc. with proper session matching)
       await _transport!.handleRequest(req, res, body);
     } catch (err) {
       console.error("MCP POST error:", err);

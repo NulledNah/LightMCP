@@ -85,9 +85,10 @@ export async function selectTools(
   // keyword pre-filter can match English tool names and descriptions.
   let filterTask = task;
   const allHints = [...hints];
+  let translated: string | null = null;
   if (detectNonEnglish(task)) {
     try {
-      const translated = await translateToEnglish(task, host, model);
+      translated = await translateToEnglish(task, host, model);
       if (translated && translated !== task) {
         filterTask = translated;
         allHints.push(`Original task (translated from non-English): "${task}"`);
@@ -100,9 +101,25 @@ export async function selectTools(
     }
   }
 
+  // Pre-filter v2: Match keywords against both original and translated queries.
+  // Translated query carries English keywords; original may carry server-specific
+  // vocabulary in the original language (e.g., "posa" for KiCad in Italian).
+  let filtered = filterCatalogByTask(filterTask, catalog);
+  if (translated && translated !== task) {
+    const originalFiltered = filterCatalogByTask(task, catalog);
+    // Merge: union of servers matched by either query
+    const mergedServers = new Set<string>();
+    for (const t of filtered) mergedServers.add(t.serverKey);
+    for (const t of originalFiltered) mergedServers.add(t.serverKey);
+    if (mergedServers.size > 0) {
+      filtered = catalog.filter((t) => mergedServers.has(t.serverKey));
+      if (filtered.length === 0) filtered = catalog;
+    }
+  }
+
   const { systemPrompt, userPrompt } = buildToolSelectionPrompt(
     task,
-    filterCatalogByTask(filterTask, catalog),
+    filtered,
     allHints
   );
 
