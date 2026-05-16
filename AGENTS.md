@@ -69,5 +69,21 @@ npx vitest tests/unit/clean_tip.test.ts  # Run a single test file
 
 | Version | Goal |
 |---------|------|
-| v0.3.0 | 235 tests, CI (Ubuntu + Windows), race condition fixes, word-boundary filter fix, multi-agent watcher, server manager (add/remove/list/disable/enable), uninstall, standalone Linux/WSL2 |
-| v0.4.0 | Full Linux compatibility (unattended `setup` without winget), README Linux section, GUI server manager |
+| v0.3.0 | 223 tests, CI (Ubuntu + Windows), race condition fixes, word-boundary filter fix, multi-agent watcher, server manager (add/remove/list/disable/enable), uninstall, standalone Linux/WSL2 |
+| v0.3.5 | 237 tests, dynamic domain keywords (zero hardcoded servers), multilingual translator (IT/ES/FR/DE/PT), cross-server keyword dedup, isolate mode inline config, `_removed` backup flag, security audit fixes (registration lock, path traversal, env injection, TOCTOU), openCode scanner paths per official docs |
+| **v0.4.0** | **Planned:** |
+| | -- **openCode/standard client compatibility** — Refactor `initialize` handler to support SDK-native Streamable HTTP sessions alongside stateless Antigravity handlers |
+| | -- **Full Linux compatibility** — unattended `setup` without `winget` (Ollama detection + install via package manager) |
+| | -- **Claude Code + Cursor testing** — Verify and document MCP config integration for remaining agents |
+| | -- **`mcpConfigPath` root fix** — Fix double-encoding in `autoPopulateConfig` at source (currently workaround in `resolveMcpServers`) |
+| | -- **Pre-filter v2** — Improve multilingual keyword matching (currently EN keywords matched against translated query; could match original + translated) |
+| | -- **Security hardening** — Express rate limiting, CORS policy, prompt injection guard |
+
+## Known Limitations
+
+| Issue | Impact | Resolution |
+|-------|--------|------------|
+| openCode Desktop/CLI connection failure | Cannot use LightMCP with openCode | Planned v0.4.0 refactor of `initialize` handler |
+| `autoPopulateConfig` double-encodes `mcpConfigPath` | Config file contains escaped JSON path strings | Workaround in `resolveMcpServers()` parses JSON; root fix planned v0.4.0 |
+| Pre-filter keyword matching is EN-only | Translated queries may not match domain keywords | Translator mitigates this; v2 matching planned |
+| Server idle timeout hard to unit test | Uses `setInterval` | Tested manually; e2e tests would cover this |
