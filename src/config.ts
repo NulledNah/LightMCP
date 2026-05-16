@@ -293,6 +293,16 @@ export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {
   } catch {
     throw new Error(`Failed to parse ${mcpConfigPath}: invalid JSON`);
   }
+
+  // Normalize openCode format: { mcp: { ... } } → { mcpServers: { ... } }
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    if (obj.mcp && !obj.mcpServers) {
+      obj.mcpServers = obj.mcp;
+      delete obj.mcp;
+    }
+  }
+
   const McpConfigSchema = z.object({
     mcpServers: z.record(z.object({
       command: z.string().optional(),

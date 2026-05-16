@@ -64,11 +64,12 @@ describe('scanner.ts', () => {
     });
 
     it('should detect openCode CLI when .opencode.json exists', async () => {
+      vi.resetModules();
       mockExistsSync.mockImplementation((p: string) => {
-        return p.endsWith('.opencode.json');
+        return p.includes('opencode') && p.endsWith('opencode.json');
       });
 
-      mockReadFileSync.mockReturnValue(JSON.stringify({ mcpServers: { s1: {}, s2: {} } }));
+      mockReadFileSync.mockReturnValue(JSON.stringify({ mcp: { s1: {}, s2: {} } }));
 
       const { detectAgents } = await import('../../src/setup/scanner.js');
       const agents = detectAgents();

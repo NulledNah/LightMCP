@@ -46,8 +46,8 @@ interface AgentDef {
   mcpServersKey: string;
   /** LightMCP entry to add */
   lightMCPEntry: Record<string, unknown>;
-  /** Whether the config uses "mcpServers" or "servers" as the key */
-  serverEntryStyle: "mcpServers" | "servers";
+  /** Whether the config uses "mcpServers", "mcp", or "servers" as the key */
+  serverEntryStyle: "mcpServers" | "mcp" | "servers";
 }
 
 const AGENTS: AgentDef[] = [
@@ -80,12 +80,13 @@ const AGENTS: AgentDef[] = [
     name: "openCode CLI",
     description: "openCode terminal AI agent",
     detectPaths: [
-      path.join(os.homedir(), ".opencode.json"),
+      path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+      path.join(os.homedir(), ".config", "opencode"),
     ],
-    configPath: path.join(os.homedir(), ".opencode.json"),
-    mcpServersKey: "mcpServers",
-    lightMCPEntry: { type: "sse", url: "http://127.0.0.1:3131/mcp" },
-    serverEntryStyle: "mcpServers",
+    configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+    mcpServersKey: "mcp",
+    lightMCPEntry: { type: "remote", url: "http://127.0.0.1:3131/mcp", enabled: true },
+    serverEntryStyle: "mcp",
   },
   {
     name: "openCode Desktop",
@@ -93,10 +94,10 @@ const AGENTS: AgentDef[] = [
     detectPaths: [
       path.join(process.env.APPDATA ?? "", "ai.opencode.desktop"),
     ],
-    configPath: path.join(process.env.APPDATA ?? "", "ai.opencode.desktop", "opencode.global.dat"),
-    mcpServersKey: "mcpServers",
-    lightMCPEntry: { type: "sse", url: "http://127.0.0.1:3131/mcp" },
-    serverEntryStyle: "mcpServers",
+    configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
+    mcpServersKey: "mcp",
+    lightMCPEntry: { type: "remote", url: "http://127.0.0.1:3131/mcp", enabled: true },
+    serverEntryStyle: "mcp",
   },
   {
     name: "Cursor",
@@ -121,6 +122,7 @@ export interface DetectedAgent {
   currentServerCount: number;
   hasLightMCP: boolean;
   canAutoConfigure: boolean;
+  mcpServersKey: string;
   note?: string;
 }
 
@@ -160,6 +162,7 @@ export function detectAgents(): DetectedAgent[] {
       currentServerCount,
       hasLightMCP,
       canAutoConfigure,
+      mcpServersKey: agent.mcpServersKey,
       ...(canAutoConfigure ? {} : { note: "Config is a binary file — manual setup required." }),
     });
   }
