@@ -30,6 +30,7 @@ const LightMCPConfigSchema = z.object({
     watchMcpConfig: z.boolean().default(true),
   }),
   mcpConfigPath: z.string().nullable().default(null),
+  mcpConfigPaths: z.array(z.string()).default([]),
   mcpServers: z.record(z.object({
     command: z.string().optional(),
     args: z.array(z.string()).optional(),
@@ -80,10 +81,30 @@ async function doLoadConfig(): Promise<LightMCPConfig> {
       );
     }
     _config = result.data;
+    // Normalize: merge legacy mcpConfigPath into mcpConfigPaths
+    if (_config.mcpConfigPath && (!_config.mcpConfigPaths || _config.mcpConfigPaths.length === 0)) {
+      const paths = parseMcpConfigPathValue(_config.mcpConfigPath);
+      if (paths.length > 0) {
+        _config.mcpConfigPaths = paths;
+      }
+    }
     return _config;
   } finally {
     _configPromise = null;
   }
+}
+
+/** Parse the legacy mcpConfigPath field (which may be a JSON-encoded array or plain path) */
+function parseMcpConfigPathValue(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((p): p is string => typeof p === "string");
+    }
+  } catch {
+    // Not valid JSON — treat as single path
+  }
+  return [value];
 }
 
 export function invalidateConfig(): void {
@@ -139,27 +160,12 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
     ...(cfg.mcpServers ?? {}),
   };
 
-  // 2. Merge from explicit mcpConfigPath (if specified)
-  if (cfg.mcpConfigPath) {
-    // mcpConfigPath may be a JSON-encoded array (from autoPopulateConfig)
-    // or a simple file path string
-    const resolvedPaths: string[] = [];
+  // 2. Merge from explicit mcpConfigPaths
+  for (const configPath of (cfg.mcpConfigPaths ?? [])) {
+    if (!existsSync(configPath)) continue;
     try {
-      const parsed = JSON.parse(cfg.mcpConfigPath);
-      if (Array.isArray(parsed)) {
-        resolvedPaths.push(...parsed.filter((p): p is string => typeof p === "string"));
-      }
-    } catch {
-      // Not JSON — treat as a single file path
-      resolvedPaths.push(cfg.mcpConfigPath);
-    }
-
-    for (const configPath of resolvedPaths) {
-      if (!existsSync(configPath)) continue;
-      try {
-        await mergeMcpConfigServers(configPath, merged);
-      } catch { /* skip unreadable configs */ }
-    }
+      await mergeMcpConfigServers(configPath, merged);
+    } catch { /* skip unreadable configs */ }
   }
 
   // 3. Auto-detect agents and merge their configs
@@ -188,39 +194,24 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
  */
 export async function autoPopulateConfig(discoveredServers: Record<string, import("./types.js").MCPServerConfig>): Promise<void> {
   const cfg = await loadConfig();
-  const paths: string[] = [];
+  const paths: string[] = [...(cfg.mcpConfigPaths ?? [])];
 
   // Collect paths from auto-detected agents
   try {
     const { detectAgents } = await import("./setup/scanner.js");
     const agents = detectAgents();
     for (const agent of agents) {
-      if (agent.configExists && agent.configPath) {
+      if (agent.configExists && agent.configPath && !paths.includes(agent.configPath)) {
         paths.push(agent.configPath);
       }
     }
   } catch { /* scanner not available */ }
 
-  // Merge with user-specified path(s)
+  // Merge with legacy mcpConfigPath
   if (cfg.mcpConfigPath) {
-    // cfg.mcpConfigPath may be a JSON-encoded array (from a previous
-    // autoPopulateConfig run) or a plain file path string.
-    try {
-      const parsed = JSON.parse(cfg.mcpConfigPath);
-      if (Array.isArray(parsed)) {
-        for (const p of parsed) {
-          if (typeof p === "string" && !paths.includes(p)) {
-            paths.unshift(p);
-          }
-        }
-      } else if (typeof parsed === "string") {
-        paths.unshift(parsed);
-      }
-    } catch {
-      // Not valid JSON — treat as plain path string
-      if (!paths.includes(cfg.mcpConfigPath)) {
-        paths.unshift(cfg.mcpConfigPath);
-      }
+    const legacyPaths = parseMcpConfigPathValue(cfg.mcpConfigPath);
+    for (const p of legacyPaths) {
+      if (!paths.includes(p)) paths.unshift(p);
     }
   }
 
@@ -231,7 +222,8 @@ export async function autoPopulateConfig(discoveredServers: Record<string, impor
   const configPath = resolveConfigPath();
   const updated = {
     ...cfg,
-    mcpConfigPath: paths.length > 0 ? JSON.stringify(paths) : null,
+    mcpConfigPath: null,
+    mcpConfigPaths: paths,
     mcpServers: mergedServers,
   };
 
@@ -251,21 +243,15 @@ export async function resolveWatchPaths(): Promise<string[]> {
   const cfg = await loadConfig();
   const paths: string[] = [];
 
+  for (const p of (cfg.mcpConfigPaths ?? [])) {
+    if (existsSync(p)) paths.push(p);
+  }
+
+  // Also parse legacy mcpConfigPath for backward compat
   if (cfg.mcpConfigPath) {
-    // Try JSON array first (new format), fallback to single string (old format)
-    try {
-      const parsed = JSON.parse(cfg.mcpConfigPath);
-      if (Array.isArray(parsed)) {
-        for (const p of parsed) {
-          if (typeof p === "string" && existsSync(p)) paths.push(p);
-        }
-      } else {
-        // Legacy: single string path
-        if (existsSync(cfg.mcpConfigPath)) paths.push(cfg.mcpConfigPath);
-      }
-    } catch {
-      // Not valid JSON — treat as single path
-      if (existsSync(cfg.mcpConfigPath)) paths.push(cfg.mcpConfigPath);
+    const legacyPaths = parseMcpConfigPathValue(cfg.mcpConfigPath);
+    for (const p of legacyPaths) {
+      if (existsSync(p) && !paths.includes(p)) paths.push(p);
     }
   }
 

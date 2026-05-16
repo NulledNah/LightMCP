@@ -54,6 +54,7 @@ export interface LightMCPConfig {
     watchMcpConfig: boolean;
   };
   mcpConfigPath: string | null;
+  mcpConfigPaths: string[];
   /** Inline server definitions (alternative to mcpConfigPath).
    *  Used when no external agent config file exists. */
   mcpServers?: Record<string, MCPServerConfig>;

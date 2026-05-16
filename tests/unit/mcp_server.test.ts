@@ -13,7 +13,10 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
 }));
 
 const mockTransportHandleRequest = vi.fn().mockImplementation((_req: any, res: any) => {
-  if (!res.headersSent) res.status(200).json({});
+  if (!res.headersSent) {
+    res.setHeader("Mcp-Session-Id", "mock-session-id");
+    res.status(200).json({});
+  }
 });
 const mockTransportClose = vi.fn();
 
@@ -83,7 +86,16 @@ describe('mcp_server.ts', () => {
     mockRegisterToolFn.mockReturnValue({ remove: vi.fn() });
     mockTransportHandleRequest.mockImplementation((_req: any, res: any) => {
       if (!res.headersSent && typeof res.status === 'function') {
-        res.status(200).json({});
+        res.setHeader("Mcp-Session-Id", "mock-session-id");
+        res.status(200).json({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            protocolVersion: "2025-03-26",
+            capabilities: { tools: {} },
+            serverInfo: { name: "lightmcp", version: "0.1.0" },
+          },
+        });
       }
     });
     const mod = await import('../../src/server/mcp_server.js');

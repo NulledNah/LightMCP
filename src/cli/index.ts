@@ -456,12 +456,23 @@ program
           process.exit(0);
         }
       } else {
-        console.log(
-          "  [INFO] Please install Ollama manually:\n" +
-          "  Linux/macOS: curl -fsSL https://ollama.com/install.sh | sh"
-        );
-        console.log("  After installation, re-run: lightmcp setup");
-        process.exit(0);
+        // Linux/macOS: auto-install via curl
+        console.log("  Installing Ollama via curl (requires root/sudo)...");
+        try {
+          execSync(
+            'curl -fsSL https://ollama.com/install.sh | sh',
+            { stdio: "inherit" }
+          );
+          console.log("[OK] Ollama installed");
+          ollamaInstalled = true;
+        } catch {
+          console.warn(
+            "  [WARN] Could not install Ollama automatically.\n" +
+            "  Run manually: curl -fsSL https://ollama.com/install.sh | sh"
+          );
+          console.log("  After installation, re-run: lightmcp setup");
+          process.exit(0);
+        }
       }
     }
 
@@ -667,7 +678,7 @@ Tip (max 100 chars):`;
       }
     }
 
-    // 5. Register Windows Task Scheduler
+    // 6. Register startup task
     if (osMod.default.platform() === "win32") {
       const scriptPath = path.resolve(__dirname, "../../scripts/setup.ps1");
       if (existsSync(scriptPath)) {
@@ -685,6 +696,19 @@ Tip (max 100 chars):`;
           );
         }
       }
+    } else {
+      // Linux/macOS: suggest systemd user service or launchd
+      console.log("\n[INFO] To run LightMCP at startup, add to your init system:");
+      console.log("  Linux (systemd):");
+      console.log(`    Create ~/.config/systemd/user/lightmcp.service with:`);
+      console.log("    [Unit]");
+      console.log("    Description=LightMCP MCP Router");
+      console.log("    [Service]");
+      console.log(`    ExecStart=${process.execPath} ${path.resolve(__dirname, "index.js")} start`);
+      console.log("    Restart=on-failure");
+      console.log("    [Install]");
+      console.log("    WantedBy=default.target");
+      console.log("    Then run: systemctl --user enable --now lightmcp.service");
     }
 
     console.log("\n[OK] LightMCP setup complete!");

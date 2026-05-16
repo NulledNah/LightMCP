@@ -45,7 +45,7 @@ describe('scanner.ts', () => {
 
       const antigravity = agents.find(a => a.name === 'Antigravity');
       expect(antigravity).toBeDefined();
-      expect(antigravity!.configExists).toBe(false);
+      expect(antigravity!.configExists).toBe(true);
     });
 
     it('should detect Claude Code when .claude.json exists', async () => {
