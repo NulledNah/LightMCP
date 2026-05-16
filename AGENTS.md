@@ -62,7 +62,7 @@ npx vitest tests/unit/clean_tip.test.ts  # Run a single test file
 ## CI / Cross-platform
 
 - GitHub Actions: Ubuntu (`ubuntu-latest`) + Windows (`windows-latest`)
-- Both run `npm test` (235 unit + integration tests) at every push/PR to main
+- Both run `npm test` (237 unit + integration tests) at every push/PR to main
 - All tests mock I/O and child processes — they pass identically on both platforms
 
 ## Roadmap

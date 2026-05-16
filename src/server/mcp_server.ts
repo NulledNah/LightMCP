@@ -132,7 +132,7 @@ export async function createMcpServer(): Promise<express.Application> {
       const body = req.body;
       const method = body?.method;
 
-      // Intercept initialize: return clean JSON with session
+      // Intercept initialize: return clean JSON with session (Antigravity-style)
       if (method === "initialize") {
         const sessionId = randomUUID();
         res.setHeader("Mcp-Session-Id", sessionId);

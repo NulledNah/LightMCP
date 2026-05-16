@@ -31,7 +31,7 @@
 - Tool selection prompt now instructs model to mentally translate non-English queries
 - Server remove now marks as `_removed` in backup instead of deleting
 - Server add clears `_removed` flag from backup
-- 235 tests across 21 files (all passing)
+- 237 tests across 21 files (all passing)
 
 ---
 
