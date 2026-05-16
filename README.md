@@ -103,7 +103,34 @@ node dist/cli/index.js status          # verify everything works
 | `server` (add/remove/list/disable/enable) | YES | YES | YES |
 | `setup` (auto-install Ollama) | manual | manual | YES `winget` |
 | Task Scheduler auto-start | NO | NO | YES |
-| 235 unit/integration tests | YES | YES | YES |
+| 237 unit/integration tests | YES | YES | YES |
+
+### Client Compatibility
+
+| AI Agent | Status | Transport | Notes |
+|----------|--------|-----------|-------|
+| **Antigravity** (VS Code) | Working | STDIO bridge via `mcp_config.json` | Fully tested. Handles both English and multilingual queries. |
+| **claude\_code** | Not yet tested | HTTP `type: "http"` | Config path: `~/.claude.json`. Should work with `http://127.0.0.1:3131/mcp`. |
+| **Cursor** | Not yet tested | HTTP `url` | Config path: `~/.cursor/mcp.json`. Should work with `http://127.0.0.1:3131/mcp`. |
+| **openCode CLI** | Pending upstream fix | `type: "remote"` + `oauth: false` | Config loaded correctly. Connection fails due to opencode-ai/opencode [issue #8434](https://github.com/anomalyco/opencode/issues/8434) (Windows STDIO) and [issue #16449](https://github.com/anomalyco/opencode/issues/16449) (MCP runtime). |
+| **openCode Desktop** | Pending upstream fix | `type: "remote"` + `oauth: false` | Same root cause as CLI. Server appears in MCP list but cannot connect. Tracked upstream in opencode-ai/opencode. |
+
+For openCode, the correct config file is `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "lightmcp": {
+      "type": "remote",
+      "url": "http://127.0.0.1:3131/mcp",
+      "enabled": true,
+      "oauth": false,
+      "timeout": 30000
+    }
+  }
+}
+```
 
 ### Manual agent configuration
 
