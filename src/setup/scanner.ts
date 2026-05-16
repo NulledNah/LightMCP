@@ -47,7 +47,7 @@ interface AgentDef {
   /** LightMCP entry to add */
   lightMCPEntry: Record<string, unknown>;
   /** Whether the config uses "mcpServers", "mcp", or "servers" as the key */
-  serverEntryStyle: "mcpServers" | "mcp" | "servers";
+  serverEntryStyle: "mcpServers" | "servers" | "mcp";
 }
 
 const AGENTS: AgentDef[] = [
@@ -80,8 +80,8 @@ const AGENTS: AgentDef[] = [
     name: "openCode CLI",
     description: "openCode terminal AI agent",
     detectPaths: [
-      path.join(os.homedir(), ".config", "opencode", "opencode.json"),
       path.join(os.homedir(), ".config", "opencode"),
+      path.join(os.homedir(), ".config", "opencode", "opencode.json"),
     ],
     configPath: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
     mcpServersKey: "mcp",
@@ -122,7 +122,6 @@ export interface DetectedAgent {
   currentServerCount: number;
   hasLightMCP: boolean;
   canAutoConfigure: boolean;
-  mcpServersKey: string;
   note?: string;
 }
 
@@ -162,7 +161,6 @@ export function detectAgents(): DetectedAgent[] {
       currentServerCount,
       hasLightMCP,
       canAutoConfigure,
-      mcpServersKey: agent.mcpServersKey,
       ...(canAutoConfigure ? {} : { note: "Config is a binary file — manual setup required." }),
     });
   }

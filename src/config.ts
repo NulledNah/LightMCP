@@ -157,8 +157,7 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
     for (const configPath of resolvedPaths) {
       if (!existsSync(configPath)) continue;
       try {
-        const mcp = await loadMcpConfig(configPath);
-        Object.assign(merged, mcp.mcpServers);
+        await mergeMcpConfigServers(configPath, merged);
       } catch { /* skip unreadable configs */ }
     }
   }
@@ -171,8 +170,7 @@ export async function resolveMcpServers(): Promise<Record<string, import("./type
     for (const agent of agents) {
       if (!agent.configExists) continue;
       try {
-        const mcp = await loadMcpConfig(agent.configPath);
-        Object.assign(merged, mcp.mcpServers);
+        await mergeMcpConfigServers(agent.configPath, merged);
       } catch { /* skip unreadable configs */ }
     }
   } catch { /* scanner not available or no agents */ }
@@ -293,16 +291,6 @@ export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {
   } catch {
     throw new Error(`Failed to parse ${mcpConfigPath}: invalid JSON`);
   }
-
-  // Normalize openCode format: { mcp: { ... } } → { mcpServers: { ... } }
-  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-    const obj = parsed as Record<string, unknown>;
-    if (obj.mcp && !obj.mcpServers) {
-      obj.mcpServers = obj.mcp;
-      delete obj.mcp;
-    }
-  }
-
   const McpConfigSchema = z.object({
     mcpServers: z.record(z.object({
       command: z.string().optional(),
@@ -320,4 +308,47 @@ export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {
     );
   }
   return result.data;
+}
+
+/**
+ * Reads servers from both mcpServers (Antigravity/standard) and mcp (openCode)
+ * formats. Converts openCode-style entries to MCPServerConfig.
+ */
+export async function mergeMcpConfigServers(
+  configPath: string,
+  merged: Record<string, import("./types.js").MCPServerConfig>
+): Promise<void> {
+  const raw = await readFile(configPath, "utf-8");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { return; }
+
+  const obj = parsed as Record<string, unknown>;
+
+  // Standard format: mcpServers
+  if (obj.mcpServers && typeof obj.mcpServers === "object") {
+    for (const [key, val] of Object.entries(obj.mcpServers as Record<string, unknown>)) {
+      const entry = val as Record<string, unknown>;
+      merged[key] = {
+        command: typeof entry.command === "string" ? entry.command : undefined,
+        args: Array.isArray(entry.args) ? entry.args as string[] : undefined,
+        env: entry.env as Record<string, string> | undefined,
+        serverUrl: typeof entry.serverUrl === "string" ? entry.serverUrl : undefined,
+        disabled: entry.disabled === true || undefined,
+        disabledTools: Array.isArray(entry.disabledTools) ? entry.disabledTools as string[] : undefined,
+      };
+    }
+  }
+
+  // openCode format: mcp
+  if (obj.mcp && typeof obj.mcp === "object") {
+    for (const [key, val] of Object.entries(obj.mcp as Record<string, unknown>)) {
+      const entry = val as Record<string, unknown>;
+      merged[key] = {
+        serverUrl: typeof entry.url === "string" ? entry.url : undefined,
+        command: Array.isArray(entry.command) ? (entry.command as string[])[0] : undefined,
+        args: Array.isArray(entry.command) ? (entry.command as string[]).slice(1) : undefined,
+        disabled: entry.enabled === false || undefined,
+      };
+    }
+  }
 }

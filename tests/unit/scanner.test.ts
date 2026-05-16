@@ -63,10 +63,9 @@ describe('scanner.ts', () => {
       expect(claude!.currentServerCount).toBe(1);
     });
 
-    it('should detect openCode CLI when .opencode.json exists', async () => {
-      vi.resetModules();
+    it('should detect openCode CLI when .config/opencode exists', async () => {
       mockExistsSync.mockImplementation((p: string) => {
-        return p.includes('opencode') && p.endsWith('opencode.json');
+        return p.includes('.config') && p.includes('opencode');
       });
 
       mockReadFileSync.mockReturnValue(JSON.stringify({ mcp: { s1: {}, s2: {} } }));

@@ -72,9 +72,10 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
     for (const agent of agents) {
       if (!agent.configExists) continue;
       try {
-        const { loadMcpConfig } = await import("../config.js");
-        const mcp = await loadMcpConfig(agent.configPath);
-        for (const [name, serverCfg] of Object.entries(mcp.mcpServers ?? {})) {
+        const { mergeMcpConfigServers } = await import("../config.js");
+        const agentServers: Record<string, import("../types.js").MCPServerConfig> = {};
+        await mergeMcpConfigServers(agent.configPath, agentServers);
+        for (const [name, serverCfg] of Object.entries(agentServers)) {
           if (name === "lightmcp") continue;
           // Only add if not already in inline
           if (results.some(r => r.name === name)) continue;
@@ -297,14 +298,7 @@ export async function uninstallAll(): Promise<string[]> {
               }
             }
           }
-          // Translate backup key for agents that use a different key (e.g. "mcp" for openCode)
-          const targetKey = (agent as DetectedAgent).mcpServersKey;
-          if (targetKey && targetKey !== "mcpServers" && backup.mcpServers) {
-            const restored = { [targetKey]: backup.mcpServers };
-            writeFileSync(agent.configPath, JSON.stringify(restored, null, 2) + "\n", "utf-8");
-          } else {
-            writeFileSync(agent.configPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
-          }
+          writeFileSync(agent.configPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
           messages.push(`[OK] Restored ${agent.name} to original config`);
         } catch {
           console.warn(`  [WARN] Failed to restore ${agent.name} from backup`);
@@ -314,9 +308,8 @@ export async function uninstallAll(): Promise<string[]> {
         if (agent.configExists && agent.hasLightMCP) {
           try {
             const current = JSON.parse(readFileSync(agent.configPath, "utf-8"));
-            const serversKey = (agent as DetectedAgent).mcpServersKey || "mcpServers";
-            if (current[serversKey]) {
-              delete current[serversKey].lightmcp;
+            if (current.mcpServers) {
+              delete current.mcpServers.lightmcp;
               writeFileSync(agent.configPath, JSON.stringify(current, null, 2) + "\n", "utf-8");
             }
             messages.push(`[OK] Removed LightMCP from ${agent.name}`);
