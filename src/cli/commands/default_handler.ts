@@ -1,6 +1,7 @@
 // ============================================================
 // LightMCP — default command handler
 // ============================================================
+import { mcpHandshake } from "../utils.js";
 
 export async function defaultAction(...args: (string | unknown)[]): Promise<void> {
   const strs = args.filter((a): a is string => typeof a === "string");
@@ -38,9 +39,15 @@ export async function defaultAction(...args: (string | unknown)[]): Promise<void
     }
   }
 
+  const sessionId = await mcpHandshake(url);
+
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+    },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: toolArgs } }),
   });
 

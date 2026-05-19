@@ -1,7 +1,7 @@
 // ============================================================
 // LightMCP — call command
 // ============================================================
-import { safePath } from "../utils.js";
+import { safePath, mcpHandshake } from "../utils.js";
 
 export async function callAction(
   firstArg: string,
@@ -57,11 +57,14 @@ export async function callAction(
     }
   }
 
+  const sessionId = await mcpHandshake(url);
+
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
     },
     body: JSON.stringify({
       jsonrpc: "2.0",

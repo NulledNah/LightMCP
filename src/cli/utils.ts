@@ -36,3 +36,34 @@ export function safePath(inputPath: string): string {
   }
   return resolved;
 }
+
+/** Performs MCP initialize handshake. Returns the session ID for subsequent requests. */
+export async function mcpHandshake(url: string): Promise<string | null> {
+  const initRes = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    body: JSON.stringify({
+      jsonrpc: "2.0", id: 0, method: "initialize",
+      params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "lightmcp-cli", version: "1.0" } },
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!initRes.ok) return null;
+
+  const rawId = initRes.headers.get("mcp-session-id");
+  const sessionId = rawId && rawId.length > 0 ? rawId : null;
+
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  return sessionId;
+}

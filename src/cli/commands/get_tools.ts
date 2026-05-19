@@ -1,6 +1,7 @@
 // ============================================================
 // LightMCP — get-tools command
 // ============================================================
+import { mcpHandshake } from "../utils.js";
 
 export async function getToolsAction(task: string, opts: { hints: string }): Promise<void> {
   const { loadConfig } = await import("../../config.js");
@@ -12,9 +13,14 @@ export async function getToolsAction(task: string, opts: { hints: string }): Pro
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      const sessionId = await mcpHandshake(url);
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+        },
         body: JSON.stringify({
           jsonrpc: "2.0", id: 1, method: "tools/call",
           params: { name: "get_task_tools", arguments: { task, hints } },
