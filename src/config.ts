@@ -131,13 +131,12 @@ export function invalidateConfig(): void {
 export async function resolveMcpConfigPath(cfg: LightMCPConfig): Promise<string> {
   if (cfg.mcpConfigPath) return cfg.mcpConfigPath;
 
-  // Standard Antigravity location: %USERPROFILE%\.gemini\antigravity\mcp_config.json
-  const defaultPath = path.join(
-    os.homedir(),
-    ".gemini",
-    "antigravity",
-    "mcp_config.json"
-  );
+  // Antigravity 2.0 uses config/mcp_config.json
+  const configDir = path.join(os.homedir(), ".gemini", "config", "mcp_config.json");
+  if (existsSync(path.dirname(configDir))) return configDir;
+
+  // Antigravity 1.x standalone
+  const defaultPath = path.join(os.homedir(), ".gemini", "antigravity", "mcp_config.json");
   if (existsSync(defaultPath)) return defaultPath;
 
   throw new Error(

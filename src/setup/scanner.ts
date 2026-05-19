@@ -32,11 +32,15 @@ function resolveLightMCPConfigPath(): string {
   return path.join(__agentDir, "..", CONFIG_FILENAME);
 }
 
-/** Resolve Antigravity MCP config path (cross-platform) */
+/** Resolve Antigravity MCP config path. Antigravity 2.0 uses config/mcp_config.json. */
 function resolveAntigravityConfigPath(): string {
+  const configDir = path.join(homeDir, ".gemini", "config", "mcp_config.json");
   const standalone = path.join(homeDir, ".gemini", "antigravity", "mcp_config.json");
 
-  // Standalone path takes priority — it's the direct install location
+  // Antigravity 2.0
+  if (existsSync(path.dirname(configDir))) return configDir;
+
+  // Antigravity 1.x standalone
   if (existsSync(path.dirname(standalone))) return standalone;
 
   // Fall back to IDE-managed configs
@@ -50,7 +54,7 @@ function resolveAntigravityConfigPath(): string {
     if (existsSync(path.dirname(vscodiumLinux))) return vscodiumLinux;
   }
 
-  return standalone; // default to standalone path
+  return configDir;
 }
 
 // ── Agent definitions ─────────────────────────────────────
