@@ -235,7 +235,7 @@ Tip (max 100 chars):`;
           console.log(generateManualInstructions(selectedAgents));
         }
 
-        // Install Antigravity global rule
+        // Install global rule for Antigravity
         if (selectedAgents.some(a => a.name === "Antigravity")) {
           const homedir = osMod.default.homedir();
           const geminiMdPath = pathMod.resolve(homedir, ".gemini", "GEMINI.md");

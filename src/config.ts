@@ -127,7 +127,7 @@ export function invalidateConfig(): void {
   _configPromise = null;
 }
 
-/** Resolves the Antigravity mcp_config.json path */
+/** Resolves the Antigravity agent's mcp_config.json path */
 export async function resolveMcpConfigPath(cfg: LightMCPConfig): Promise<string> {
   if (cfg.mcpConfigPath) return cfg.mcpConfigPath;
 

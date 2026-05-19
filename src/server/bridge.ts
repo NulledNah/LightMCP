@@ -2,7 +2,7 @@
 // ============================================================
 // LightMCP — STDIO Bridge
 // Thin STDIO→HTTP forwarder for agents that spawn one-shot
-// processes (Antigravity). Reads JSON-RPC from stdin, POSTs
+// processes (e.g. Antigravity). Reads JSON-RPC from stdin, POSTs
 // to the LightMCP HTTP server, writes response to stdout.
 //
 // Usage in agent config:

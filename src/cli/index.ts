@@ -23,7 +23,7 @@ program
   .name("lightmcp")
   .description(
     "LightMCP — semantic MCP tool router powered by a local LLM.\n" +
-    "Bypass the 100-tool limit and reduce context usage in Antigravity."
+    "Semantic MCP tool routing — keep only the tools your agent needs for each task."
   )
   .version(version);
 
