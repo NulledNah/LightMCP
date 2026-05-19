@@ -1,6 +1,7 @@
 // ============================================================
 // LightMCP — get-tools command
 // ============================================================
+
 import { mcpHandshake } from "../utils.js";
 
 export async function getToolsAction(task: string, opts: { hints: string }): Promise<void> {

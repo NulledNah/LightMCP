@@ -1,6 +1,7 @@
 // ============================================================
 // LightMCP — default command handler
 // ============================================================
+
 import { mcpHandshake } from "../utils.js";
 
 export async function defaultAction(...args: (string | unknown)[]): Promise<void> {

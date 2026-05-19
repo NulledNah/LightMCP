@@ -2,6 +2,8 @@
 // LightMCP — CLI Utilities
 // ============================================================
 import path from "node:path";
+import os from "node:os";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export function cleanTip(raw: string, toolName: string): string {
   let tip = raw;
@@ -37,8 +39,55 @@ export function safePath(inputPath: string): string {
   return resolved;
 }
 
-/** Performs MCP initialize handshake. Returns the session ID for subsequent requests. */
+const SESSION_FILE = path.join(os.tmpdir(), "lightmcp_session.json");
+
+interface SessionData {
+  sessionId: string;
+  host: string;
+  port: number;
+}
+
+function readSession(): SessionData | null {
+  try {
+    if (!existsSync(SESSION_FILE)) return null;
+    const raw = readFileSync(SESSION_FILE, "utf-8");
+    return JSON.parse(raw) as SessionData;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(data: SessionData): void {
+  try {
+    writeFileSync(SESSION_FILE, JSON.stringify(data), "utf-8");
+  } catch { /* non-critical */ }
+}
+
+/** Gets a valid MCP session ID, reusing cached one if still valid. */
 export async function mcpHandshake(url: string): Promise<string | null> {
+  const urlObj = new URL(url);
+  const host = urlObj.hostname;
+  const port = parseInt(urlObj.port) || 3131;
+
+  // Try cached session first
+  const cached = readSession();
+  if (cached && cached.host === host && cached.port === port) {
+    try {
+      const testRes = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "Mcp-Session-Id": cached.sessionId,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/list" }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (testRes.ok) return cached.sessionId;
+    } catch { /* expired, re-handshake */ }
+  }
+
+  // Fresh handshake
   const initRes = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
@@ -53,17 +102,19 @@ export async function mcpHandshake(url: string): Promise<string | null> {
 
   const rawId = initRes.headers.get("mcp-session-id");
   const sessionId = rawId && rawId.length > 0 ? rawId : null;
+  if (!sessionId) return null;
 
   await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
-      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+      "Mcp-Session-Id": sessionId,
     },
     body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
     signal: AbortSignal.timeout(10_000),
   });
 
+  writeSession({ sessionId, host, port });
   return sessionId;
 }
