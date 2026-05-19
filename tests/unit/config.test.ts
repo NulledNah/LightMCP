@@ -21,7 +21,7 @@ describe('config.ts', () => {
 
   describe('loadConfig', () => {
     const validConfig: LightMCPConfig = {
-      server: { port: 3000, host: '127.0.0.1', idleTimeoutSeconds: 0 },
+      server: { port: 3000, host: '127.0.0.1', idleTimeoutSeconds: 0, mode: 'filtered' },
       ollama: {
         host: 'http://127.0.0.1:11434',
         model: 'test-model',
@@ -33,6 +33,7 @@ describe('config.ts', () => {
       mcpConfigPath: null,
       mcpConfigPaths: [],
       mcpServers: {},
+      alwaysOn: [],
     };
 
     it('should parse and load config correctly', async () => {
@@ -59,7 +60,7 @@ describe('config.ts', () => {
       expect(config.server.port).toBe(3131);
       expect(config.server.host).toBe("127.0.0.1");
       expect(config.ollama.host).toBe("http://127.0.0.1:11434");
-      expect(config.ollama.model).toBe("qwen2.5-coder:7b-instruct");
+      expect(config.ollama.model).toBe("gemma3:4b");
       expect(config.ollama.maxRetries).toBe(2);
       expect(config.catalog.activeOnly).toBe(false);
       expect(config.catalog.watchMcpConfig).toBe(true);

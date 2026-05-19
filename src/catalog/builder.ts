@@ -2,12 +2,13 @@
 // LightMCP — Tool Catalog Builder
 // Connects to each MCP server and collects tool definitions.
 // ============================================================
-import { spawn, execSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
+import { killProcess } from "../utils.js";
 import type {
   MCPServerConfig,
   ToolCatalog,
@@ -15,22 +16,11 @@ import type {
   CatalogServer,
 } from "../types.js";
 
-function killProcess(proc: ChildProcess): void {
-  if (process.platform === "win32" && proc.pid) {
-    try {
-      execSync(`taskkill /PID ${proc.pid} /T /F`, { stdio: "ignore" });
-    } catch {
-      // Process may have already exited
-    }
-  } else {
-    proc.kill();
-  }
-}
-
 /** Returns a filtered copy of process.env without dangerous keys
- *  that could be exploited via mcpServers config env overrides. */
+ *  that could be exploited via mcpServers config env overrides.
+ *  Keeps PATH/Path for command resolution. */
 const DANGEROUS_ENV_KEYS = new Set([
-  "PATH", "Path", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+  "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
   "DYLD_LIBRARY_PATH", "NODE_OPTIONS", "NODE_PATH",
 ]);
 
@@ -78,7 +68,7 @@ async function queryToolsViaStdio(
   const env = { ...safeProcessEnv(), ...(cfg.env ?? {}) };
   const version = await getVersion();
 
-  return new Promise((resolve, _reject) => {
+    return new Promise((resolve) => {
     const proc: ChildProcess = spawn(command, args, {
       env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -95,7 +85,7 @@ async function queryToolsViaStdio(
         resolved = true;
         killProcess(proc);
         // Timeout is not fatal — return empty
-        console.warn(`  [warn] ${serverKey}: stdio timeout, skipping`);
+        console.warn(`  [WARN] ${serverKey}: stdio timeout, skipping`);
         resolve([]);
       }
     }, timeoutMs);
@@ -140,7 +130,7 @@ async function queryToolsViaStdio(
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
-        console.warn(`  [warn] ${serverKey}: spawn error — ${err.message}`);
+        console.warn(`  [WARN] ${serverKey}: spawn error — ${err.message}`);
         resolve([]);
       }
     });
@@ -266,7 +256,7 @@ async function queryToolsViaHttp(
   } catch (err: unknown) {
     clearTimeout(timer);
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`  [warn] ${serverKey}: HTTP error — ${msg}`);
+    console.warn(`  [WARN] ${serverKey}: HTTP error — ${msg}`);
     return [];
   }
 }
@@ -298,7 +288,7 @@ async function loadToolTips(): Promise<Record<string, string>> {
     }
     return tips;
   } catch {
-    console.warn("  [warn] Failed to parse tool_tips.json — skipping tips");
+    console.warn("  [WARN] Failed to parse tool_tips.json — skipping tips");
     return {};
   }
 }
@@ -343,7 +333,7 @@ export async function buildCatalog(opts: {
     } else if (serverCfg.command) {
       rawTools = await queryToolsViaStdio(key, serverCfg);
     } else {
-      console.warn(`  [warn] ${key}: no command or serverUrl, skipping`);
+      console.warn(`  [WARN] ${key}: no command or serverUrl, skipping`);
     }
 
     let added = 0;

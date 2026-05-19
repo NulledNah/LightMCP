@@ -72,7 +72,9 @@ program
 program
   .command("start")
   .description("Start the LightMCP MCP router server")
+  .option("--stdio", "Start in STDIO mode (for agents that spawn LightMCP as a child process)")
   .option("--no-watch", "Disable mcp_config.json file watcher")
+  .option("--mode <mode>", "Server mode: 'filtered' (default, LLM selects tools) or 'full' (all tools visible)")
   .action(async (opts) => {
     const { startServer } = await import("../server/mcp_server.js");
     const { buildCatalog } = await import("../catalog/builder.js");
@@ -81,6 +83,16 @@ program
     const { loadConfig } = await import("../config.js");
 
     const cfg = await loadConfig();
+
+    // CLI --mode override
+    if (opts.mode) {
+      if (opts.mode !== "filtered" && opts.mode !== "full") {
+        console.error("[ERROR] --mode must be 'filtered' or 'full'");
+        process.exit(1);
+      }
+      cfg.server.mode = opts.mode;
+    }
+
     const outPath = path.resolve(process.cwd(), cfg.catalog.outputPath);
 
     // Build catalog on startup if missing
@@ -92,12 +104,13 @@ program
       console.log(`[INFO] Catalog loaded: ${tools.length} tools`);
     }
 
-    // Start file watcher
-    if (opts.watch) {
+    // Start file watcher (HTTP mode only — STDIO mode has no file watching)
+    if (opts.watch && !opts.stdio) {
       await startCatalogWatcher();
     }
 
-    await startServer();
+    const mode = opts.stdio ? "stdio" : "http";
+    await startServer(mode);
   });
 
 // ── lightmcp build-catalog ───────────────────────────────────

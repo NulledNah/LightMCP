@@ -110,10 +110,12 @@ node dist/cli/index.js start
 | AI Agent | Status | Transport | Notes |
 |----------|--------|-----------|-------|
 | **Antigravity** (VS Code) | Working | STDIO bridge via `mcp_config.json` | Fully tested. Handles both English and multilingual queries. |
-| **claude\_code** | Ready (pending testing) | HTTP `type: "http"` | Config path: `~/.claude.json`. Uses `http://127.0.0.1:3131/mcp`. |
-| **Cursor** | Ready (pending testing) | HTTP `url` | Config path: `~/.cursor/mcp.json`. Uses `http://127.0.0.1:3131/mcp`. |
-| **openCode CLI** | Ready (pending testing) | `type: "remote"` + `oauth: false` | Config path: `~/.config/opencode/opencode.json`. v0.4.0 refactored `initialize` for SDK-native Streamable HTTP sessions. Previously blocked by opencode-ai/opencode [issue #8434](https://github.com/anomalyco/opencode/issues/8434). |
-| **openCode Desktop** | Ready (pending testing) | `type: "remote"` + `oauth: false` | Same config path as CLI. Uses standard Streamable HTTP sessions now supported in v0.4.0. |
+| **claude\_code** | Working | HTTP `type: "http"` | Config path: `~/.claude.json`. Uses `http://127.0.0.1:3131/mcp`. |
+| **Cursor** | Working | HTTP `url` | Config path: `~/.cursor/mcp.json`. Uses `http://127.0.0.1:3131/mcp`. |
+| **openCode CLI** | Working | `type: "remote"` + `oauth: false` | Config path: `~/.config/opencode/opencode.json`. Standard Streamable HTTP sessions. |
+| **openCode Desktop** | Working | `type: "remote"` + `oauth: false` | Same config path as CLI. Uses standard Streamable HTTP sessions. |
+
+**v0.4.0**: Full SDK-native transport support. Dual-mode dispatch eliminated — all clients use the same standard MCP protocol path through `StreamableHTTPServerTransport`. For agents that spawn processes (Antigravity, Claude Desktop), use the STDIO bridge or `lightmcp start --stdio`.
 
 For openCode, the correct config file is `~/.config/opencode/opencode.json`:
 
@@ -178,6 +180,27 @@ lightmcp build-catalog
 
 ## Architecture
 
+LightMCP v0.4.0 uses a **clean single-transport-per-instance** design:
+
+```
+McpServer (SDK singleton)
+├── registerTool("get_task_tools")          ← always
+├── registerTool("_always_on_tool")         ← if configured
+└── [dynamic] registerTool("kicad_xxx")     ← after get_task_tools
+        ↑
+   StreamableHTTPServerTransport  (HTTP mode: lightmcp start)
+        or
+   StdioServerTransport           (STDIO mode: lightmcp start --stdio)
+```
+
+**Two modes, same McpServer:**
+- **HTTP**: `lightmcp start` → `POST /mcp`, session management via SDK
+- **STDIO**: `lightmcp start --stdio` → stdin/stdout JSON-RPC, native SDK transport
+
+**Filtered mode** (default): agent sees only `get_task_tools` + `alwaysOn` tools. Calls `get_task_tools("task")` → LLM selects relevant tools → dynamically registers them → `notifications/tools/list_changed`.
+
+**Full mode** (`--mode full`): all tools from all servers exposed with namespacing. No LLM filtering. Maximum MCP compatibility.
+
 ```mermaid
 sequenceDiagram
     participant A as AI Agent
@@ -186,60 +209,22 @@ sequenceDiagram
     participant D as Downstream MCP
 
     A->>L: tools/list
-    L-->>A: [get_task_tools]
+    L-->>A: [get_task_tools, + alwaysOn]
 
     A->>L: tools/call("get_task_tools", {task})
-    L->>L: Detect language (IT/ES/FR/DE/PT)
-    L->>O: Translate if non-English
-    L->>L: Pre-filter catalog<br/>(dynamic keywords)
     L->>O: Select relevant tools
-    O-->>L: [tool_a, tool_b, ...]
-    L-->>A: Selected tools summary
-
-    Note over L: Dynamically registers<br/>selected tools
-
+    O-->>L: [kicad_search_footprints, ...]
+    L->>L: Dynamic registration + namespacing
     L-->>A: notifications/tools/list_changed
-    A->>L: tools/list
-    L-->>A: [tool_a, tool_b, ...]
 
-    A->>L: tools/call("tool_a", args)
+    A->>L: tools/list
+    L-->>A: [get_task_tools, kicad_search_footprints, ...]
+
+    A->>L: tools/call("kicad_search_footprints", args)
     L->>D: Forward call
     D-->>L: Result
     L-->>A: Result
 ```
-
-```mermaid
-flowchart TB
-    subgraph Agent["AI Agent"]
-        A1["Only LightMCP in config"]
-        A2["Calls tools through LightMCP"]
-    end
-
-    subgraph LightMCP["LightMCP (localhost:3131)"]
-        L1["get_task_tools<br/>Ollama semantic selection"]
-        L2["Dynamic tool registration<br/>on McpServer singleton"]
-        L3["Proxy pool<br/>forward tools/call"]
-        L4["Tool catalog<br/>auto-built from all servers"]
-    end
-
-    subgraph Ollama["Ollama (localhost:11434)"]
-        O1["gemma3:4b"]
-        O2["Starts on demand<br/>Idle timeout: 120s"]
-    end
-
-    subgraph Downstream["Downstream MCP Servers"]
-        D1["Kicad (stdio)"]
-        D2["DevTools (HTTP)"]
-        D3["Fusion 360 (HTTP)"]
-        D4["..."]
-    end
-
-    Agent <-->|"MCP Streamable HTTP"| LightMCP
-    LightMCP -->|"REST API"| Ollama
-    LightMCP <-->|"MCP client"| Downstream
-```
-
-LightMCP exposes a single `get_task_tools` endpoint. The agent calls it with a task description in any language. LightMCP auto-detects and translates non-English queries via Ollama, pre-filters the catalog by domain keywords dynamically extracted from the actual server tools, and sends only the relevant subset for semantic tool selection.
 
 ---
 
@@ -247,7 +232,9 @@ LightMCP exposes a single `get_task_tools` endpoint. The agent calls it with a t
 
 | Command | Description |
 |---------|-------------|
-| `lightmcp start` | Start the MCP router server |
+| `lightmcp start` | Start the MCP router server (HTTP mode, default) |
+| `lightmcp start --stdio` | Start in STDIO mode (for agents that spawn processes) |
+| `lightmcp start --mode full` | Start with all tools exposed (no LLM filtering) |
 | `lightmcp build-catalog` | Rebuild tool catalog from all MCP servers |
 | `lightmcp build-catalog --active-only` | Only include tools from enabled servers |
 | `lightmcp status` | Show status of server, Ollama, and catalog |
@@ -279,7 +266,8 @@ Edit `lightmcp_config.json` in the project root:
   "server": {
     "port": 3131,
     "host": "127.0.0.1",
-    "idleTimeoutSeconds": 0
+    "idleTimeoutSeconds": 0,
+    "mode": "filtered"
   },
   "ollama": {
     "host": "http://127.0.0.1:11434",
@@ -295,7 +283,8 @@ Edit `lightmcp_config.json` in the project root:
   },
   "mcpConfigPath": null,
   "mcpConfigPaths": [],
-  "mcpServers": {}
+  "mcpServers": {},
+  "alwaysOn": []
 }
 ```
 
@@ -304,6 +293,7 @@ Edit `lightmcp_config.json` in the project root:
 | `server.port` | `3131` | Port for the MCP HTTP server |
 | `server.host` | `127.0.0.1` | Host to bind the server |
 | `server.idleTimeoutSeconds` | `0` | Seconds before server auto-shuts down (0 = never) |
+| `server.mode` | `filtered` | `"filtered"` (LLM selects tools) or `"full"` (all tools exposed with namespacing) |
 | `ollama.host` | `http://127.0.0.1:11434` | Ollama API URL |
 | `ollama.model` | `gemma3:4b` | Ollama model for tool selection and translation |
 | `ollama.idleTimeoutSeconds` | `120` | Seconds before Ollama is shut down |
@@ -315,6 +305,7 @@ Edit `lightmcp_config.json` in the project root:
 | `mcpConfigPath` | null | Legacy field (deprecated) — auto-normalized into `mcpConfigPaths` on load |
 | `mcpConfigPaths` | `[]` | Array of agent MCP config file paths (replaces JSON-encoded `mcpConfigPath`) |
 | `mcpServers` | `{}` | Inline MCP server definitions. Populated automatically by isolate mode. |
+| `alwaysOn` | `[]` | Tool names always visible to agents without calling `get_task_tools` (e.g., `["system_health"]`) |
 
 ### Inline server configuration
 

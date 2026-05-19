@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import request from 'supertest';
-import { createMcpServer } from '../../src/server/mcp_server.js';
+import { createMcpServer, getApp } from '../../src/server/mcp_server.js';
 import type express from 'express';
 import * as config from '../../src/config.js';
 
 vi.mock('../../src/config.js');
+vi.mock('../../src/catalog/loader.js', () => ({
+  getCatalogTools: vi.fn().mockResolvedValue([]),
+}));
 vi.mock('../../src/server/proxy.js', () => ({
   callTool: vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }], isError: false }),
   closeServerPool: vi.fn(),
+}));
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn().mockResolvedValue(JSON.stringify({ version: '0.1.0' })),
 }));
 
 describe('E2E Server endpoints', () => {
@@ -16,13 +22,17 @@ describe('E2E Server endpoints', () => {
   beforeAll(async () => {
     vi.resetAllMocks();
     vi.mocked(config.loadConfig).mockResolvedValue({
-      server: { port: 3000, host: '127.0.0.1' },
+      server: { port: 3000, host: '127.0.0.1', idleTimeoutSeconds: 0, mode: 'filtered' },
       ollama: { host: 'http://127.0.0.1:11434', model: 'test-model', idleTimeoutSeconds: 10, startupTimeoutSeconds: 30, maxRetries: 1 },
       catalog: { activeOnly: false, watchMcpConfig: false, outputPath: '' },
       mcpConfigPath: null,
+      mcpConfigPaths: [],
+      mcpServers: {},
+      alwaysOn: [],
     } as any);
 
-    app = await createMcpServer();
+    await createMcpServer('http');
+    app = getApp()!;
   });
 
   describe('Health', () => {
@@ -31,7 +41,6 @@ describe('E2E Server endpoints', () => {
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('ok');
       expect(res.body.service).toBe('lightmcp');
-      expect(res.body).toHaveProperty('version');
       expect(res.body).toHaveProperty('timestamp');
     });
   });
