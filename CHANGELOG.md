@@ -1,5 +1,47 @@
 # Changelog
 
+## [v0.4.0] - 2026-05-19
+
+### Added
+- **Native STDIO transport** (`lightmcp start --stdio`): uses `StdioServerTransport` from SDK, no external bridge needed
+- **Server mode selector** (`--mode filtered|full`): `filtered` (default, LLM selects tools) or `full` (all tools exposed with namespacing)
+- **Tool namespacing**: all tools exposed as `server_toolName` (e.g., `kicad_search_footprints`) to prevent collisions across servers
+- **`alwaysOn` config**: tools always registered and visible, bypassing LLM filtering
+- **`enableJsonResponse` mode**: clean JSON responses from Streamable HTTP transport, no ambiguous SSE
+- **`src/server/transports.ts`**: unified HTTP/STDIO transport factory with shared middleware
+- **`src/utils.ts`**: shared process utilities (`killProcess`, `killProcessGraceful`) extracted from duplicated code
+- **Path validation**: `isValidConfigPath()` rejects non-JSON config paths (.dat, .db, .sqlite) and path traversal (`..`)
+- **`qualifyToolName()`** helper in shared types
+
+### Fixed
+- **CRITICAL: server idle timeout always active** — `bumpActivity()` now called on every POST /mcp (was dead code)
+- **CRITICAL: PATH stripped from spawned STDIO processes** — PATH/Path no longer filtered, only truly dangerous env vars blocked
+- **CRITICAL: mcpConfigPaths double-encoding** — `isValidConfigPath()` filters garbage entries; corrupt entries cleaned on load
+- **`opencode.global.dat`** no longer falsely detected as MCP config (was a SQLite database)
+- **Duplicate server detection** (`autodesk-fusion`/`fusion360`) — config cleaned
+- **Promise rejection in signal handlers** — `.catch(() => {})` added to prevent unhandled rejections
+- **Per-tool error isolation** in dynamic registration — single tool failure no longer blocks subsequent registrations
+- **`ensureModelPulled` error assumption** — now distinguishes ECONNREFUSED from other API errors
+- **Atomic writes in scanner** — all agent config writes use `.tmp` + rename pattern
+
+### Removed
+- **Dual-mode dispatch** (stateless Antigravity path in `POST /mcp`) — all requests now go through SDK transport
+- **`trackTool` / `untrackTool`** functions and `_toolList`/`_toolMeta` globals — SDK manages tool registry
+- **Accept header injection hack** — no longer needed with proper SDK usage
+- **`bridge.ts` auto-start** — reduced from 232 to 75 lines, pure STDIO→HTTP forwarder
+- **`mcp_server.ts`** reduced from 343 to 163 lines
+
+### Changed
+- **Default model**: `qwen2.5-coder:7b-instruct` → `gemma3:4b` (matches README recommendation)
+- **Log tag casing**: `[warn]` → `[WARN]` everywhere for consistency
+- **`.gitignore`**: added `lightmcp_config.json` and `coverage/`
+- **CI**: push triggers extended to `feature/**` and `fix/**` branches
+- **Bridge.ts**: simplified to ~75 lines, no more CLI mode, no auto-start
+- **openCode Desktop detectPaths**: uses `LOCALAPPDATA\Programs` instead of `APPDATA` data directory
+- All 227 tests pass (21 files)
+
+---
+
 ## [v0.3.5] - 2026-05-15
 
 ### Added

@@ -16,10 +16,11 @@ const LightMCPConfigSchema = z.object({
     port: z.number().int().min(1).max(65535).default(3131),
     host: z.string().default("127.0.0.1"),
     idleTimeoutSeconds: z.number().int().min(0).default(0),
+    mode: z.enum(["filtered", "full"]).default("filtered"),
   }),
   ollama: z.object({
     host: z.string().default("http://127.0.0.1:11434"),
-    model: z.string().default("qwen2.5-coder:7b-instruct"),
+    model: z.string().default("gemma3:4b"),
     idleTimeoutSeconds: z.number().int().min(1).default(120),
     startupTimeoutSeconds: z.number().int().min(1).default(30),
     maxRetries: z.number().int().min(0).default(2),
@@ -39,6 +40,7 @@ const LightMCPConfigSchema = z.object({
     disabled: z.boolean().optional(),
     disabledTools: z.array(z.string()).optional(),
   })).optional().default({}),
+  alwaysOn: z.array(z.string()).optional().default([]),
 });
 
 function resolveConfigPath(): string {
@@ -88,6 +90,8 @@ async function doLoadConfig(): Promise<LightMCPConfig> {
         _config.mcpConfigPaths = paths;
       }
     }
+    // Clean up: filter out any non-MCP-config paths (.dat files, etc.)
+    _config.mcpConfigPaths = (_config.mcpConfigPaths ?? []).filter(isValidConfigPath);
     return _config;
   } finally {
     _configPromise = null;
@@ -99,12 +103,23 @@ function parseMcpConfigPathValue(value: string): string[] {
   try {
     const parsed = JSON.parse(value);
     if (Array.isArray(parsed)) {
-      return parsed.filter((p): p is string => typeof p === "string");
+      return parsed
+        .filter((p): p is string => typeof p === "string")
+        .filter((p) => isValidConfigPath(p)); // filter out non-JSON config paths
     }
   } catch {
     // Not valid JSON — treat as single path
   }
-  return [value];
+  if (isValidConfigPath(value)) return [value];
+  return [];
+}
+
+/** Only accept paths that look like actual MCP config files */
+function isValidConfigPath(p: string): boolean {
+  if (p.includes("..")) return false;
+  if (p.endsWith(".dat") || p.endsWith(".db") || p.endsWith(".sqlite")) return false;
+  if (!p.endsWith(".json")) return false;
+  return true;
 }
 
 export function invalidateConfig(): void {
@@ -218,12 +233,15 @@ export async function autoPopulateConfig(discoveredServers: Record<string, impor
   // Merge discovered servers with inline servers
   const mergedServers = { ...discoveredServers, ...cfg.mcpServers };
 
+  // Filter out non-MCP-config paths (.dat, etc.)
+  const cleanPaths = paths.filter(isValidConfigPath);
+
   // Write updated config back to disk (atomic: tmp + rename)
   const configPath = resolveConfigPath();
   const updated = {
     ...cfg,
     mcpConfigPath: null,
-    mcpConfigPaths: paths,
+    mcpConfigPaths: cleanPaths,
     mcpServers: mergedServers,
   };
 
@@ -266,7 +284,9 @@ export async function resolveWatchPaths(): Promise<string[]> {
     }
   } catch { /* scanner not available */ }
 
-  return [...new Set(paths)];
+  // Filter out non-MCP-config paths (.dat files, databases, etc.)
+  const filtered = paths.filter(isValidConfigPath);
+  return [...new Set(filtered)];
 }
 
 export async function loadMcpConfig(mcpConfigPath: string): Promise<MCPConfig> {

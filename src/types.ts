@@ -2,6 +2,9 @@
 // LightMCP — Shared Types
 // ============================================================
 
+/** Server operating mode */
+export type ServerMode = "filtered" | "full";
+
 /** A single tool entry as stored in the catalog */
 export interface ToolEntry {
   name: string;
@@ -40,6 +43,7 @@ export interface LightMCPConfig {
     port: number;
     host: string;
     idleTimeoutSeconds: number;
+    mode: ServerMode;
   };
   ollama: {
     host: string;
@@ -58,6 +62,8 @@ export interface LightMCPConfig {
   /** Inline server definitions (alternative to mcpConfigPath).
    *  Used when no external agent config file exists. */
   mcpServers?: Record<string, MCPServerConfig>;
+  /** Tool names that are always registered (never filtered out) */
+  alwaysOn?: string[];
 }
 
 /** mcp_config.json server entry */
@@ -72,4 +78,9 @@ export interface MCPServerConfig {
 
 export interface MCPConfig {
   mcpServers: Record<string, MCPServerConfig>;
+}
+
+/** Qualify a tool name with its server key to prevent collisions */
+export function qualifyToolName(serverKey: string, toolName: string): string {
+  return `${serverKey}_${toolName}`;
 }

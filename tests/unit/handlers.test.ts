@@ -23,6 +23,7 @@ describe('handlers.ts', () => {
 
     vi.mocked(mcpServerMod.getMcpServer).mockReturnValue({
       registerTool: mockRegisterTool,
+      sendToolListChanged: vi.fn(),
     } as any);
 
     vi.mocked(proxyMod.callTool).mockResolvedValue({
@@ -48,7 +49,8 @@ describe('handlers.ts', () => {
     
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed.tools).toHaveLength(1);
-    expect(parsed.tools[0].name).toBe('tool1');
+    expect(parsed.tools[0].name).toBe('s1_tool1');
+    expect(parsed.tools[0].originalName).toBe('tool1');
     expect(parsed.tools[0].serverKey).toBe('s1');
     expect(parsed.tools[0].transport).toBe('stdio');
   });
@@ -66,7 +68,7 @@ describe('handlers.ts', () => {
     const parsed = JSON.parse(res.content[0].text);
     
     expect(parsed.tools).toHaveLength(1);
-    expect(parsed.tools[0].name).toBe('real_tool');
+    expect(parsed.tools[0].name).toBe('s1_real_tool');
   });
 
   it('should handle selectTools error gracefully', async () => {
@@ -106,7 +108,7 @@ describe('handlers.ts', () => {
 
     expect(builder.buildCatalog).toHaveBeenCalledTimes(1);
     expect(parsed.tools).toHaveLength(1);
-    expect(parsed.tools[0].name).toBe('built_tool');
+    expect(parsed.tools[0].name).toBe('s1_built_tool');
   });
 
   it('should handle ensureOllamaReady failure', async () => {

@@ -5,6 +5,7 @@
 // ============================================================
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { loadConfig } from "../config.js";
+import { killProcess, killProcessGraceful } from "../utils.js";
 
 type OllamaState = "stopped" | "starting" | "ready";
 
@@ -12,19 +13,6 @@ let _state: OllamaState = "stopped";
 let _proc: ChildProcess | null = null;
 let _idleTimer: NodeJS.Timeout | null = null;
 let _startPromise: Promise<void> | null = null;
-
-function killProcess(proc: ChildProcess, graceful: boolean): void {
-  if (process.platform === "win32" && proc.pid) {
-    try {
-      const flag = graceful ? "" : " /F";
-      execSync(`taskkill /PID ${proc.pid} /T${flag}`, { stdio: "ignore" });
-    } catch {
-      // Process may have already exited
-    }
-  } else {
-    proc.kill(graceful ? "SIGTERM" : "SIGKILL");
-  }
-}
 
 function resetIdleTimer(idleTimeoutSeconds: number): void {
   if (_idleTimer) clearTimeout(_idleTimer);
@@ -131,11 +119,11 @@ export async function stopOllama(): Promise<void> {
 
   if (_proc && _state !== "stopped") {
     _state = "stopped";
-    killProcess(_proc, true);
+    killProcessGraceful(_proc);
     // Give it 3s to die gracefully, then force kill
     await new Promise<void>((resolve) => {
       const t = setTimeout(() => {
-        if (_proc) killProcess(_proc, false);
+        if (_proc) killProcess(_proc);
         resolve();
       }, 3_000);
       _proc?.on("exit", () => {
@@ -187,9 +175,14 @@ export async function ensureModelPulled(): Promise<void> {
       );
       return;
     }
-  } catch {
-    // Ollama not running — start it, then try to pull
-    console.log("[INFO] Ollama not running, will start and pull model...");
+  } catch (err) {
+    // Could be connection refused (Ollama not running) or transient error
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+      console.log("[INFO] Ollama not running, will start and pull model...");
+    } else {
+      console.warn(`[WARN] Ollama API check failed: ${msg} — will attempt pull anyway`);
+    }
   }
 
   console.log(`[INFO] Pulling model: ${model} (this may take a while)...`);

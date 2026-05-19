@@ -31,3 +31,9 @@ logs/
 # Editor
 .vscode/
 .idea/
+
+# Config (contains local paths, not to be committed)
+lightmcp_config.json
+
+# Test coverage
+coverage/

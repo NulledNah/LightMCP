@@ -3,11 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockExistsSync = vi.fn();
 const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();
+const mockRenameSync = vi.fn();
 
 vi.mock('node:fs', () => ({
   existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
   writeFileSync: mockWriteFileSync,
+  renameSync: mockRenameSync,
 }));
 
 const mockHomedir = vi.fn().mockReturnValue('C:\\Users\\test');

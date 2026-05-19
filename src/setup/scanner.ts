@@ -3,7 +3,7 @@
 // Detects installed AI agents and configures their MCP servers
 // for use with LightMCP.
 // ============================================================
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -13,6 +13,12 @@ const BRIDGE_PATH = path.resolve(__agentDir, "..", "server", "bridge.js");
 
 const isWindows = process.platform === "win32";
 const homeDir = os.homedir();
+
+function atomicWriteSync(filePath: string, content: string): void {
+  const tmpPath = filePath + ".tmp";
+  writeFileSync(tmpPath, content, "utf-8");
+  renameSync(tmpPath, filePath);
+}
 
 /** Resolve the lightmcp_config.json path (mirrors config.ts) */
 function resolveLightMCPConfigPath(): string {
@@ -105,7 +111,6 @@ const AGENTS: AgentDef[] = [
     description: "openCode terminal AI agent",
     detectPaths: [
       path.join(homeDir, ".config", "opencode"),
-      path.join(homeDir, ".config", "opencode", "opencode.json"),
     ],
     configPath: path.join(homeDir, ".config", "opencode", "opencode.json"),
     mcpServersKey: "mcp",
@@ -118,13 +123,16 @@ const AGENTS: AgentDef[] = [
     detectPaths: (() => {
       const paths: string[] = [];
       if (isWindows) {
-        paths.push(path.join(process.env.APPDATA ?? "", "ai.opencode.desktop"));
+        // Check for the desktop app executable directory, not the data directory
+        paths.push(
+          path.join(process.env.LOCALAPPDATA ?? "", "Programs", "ai.opencode.desktop"),
+        );
       } else {
         paths.push(
-          path.join(homeDir, ".config", "opencode-desktop"),
-          path.join(homeDir, ".local", "share", "opencode-desktop"),
+          path.join(homeDir, ".local", "share", "applications"),
         );
       }
+      // Both CLI and Desktop share the same config file
       paths.push(path.join(homeDir, ".config", "opencode", "opencode.json"));
       return paths;
     })(),
@@ -215,7 +223,7 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
   if (!existsSync(agent.configPath)) {
     // Create new config with just LightMCP
     const newCfg = { [agent.mcpServersKey]: { lightmcp: agent.lightMCPEntry } };
-    writeFileSync(agent.configPath, JSON.stringify(newCfg, null, 2) + "\n", "utf-8");
+    atomicWriteSync(agent.configPath, JSON.stringify(newCfg, null, 2) + "\n");
     return "created new config with LightMCP only";
   }
 
@@ -226,7 +234,7 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
   } catch {
     writeFileSync(agent.configPath + ".backup", raw, "utf-8");
     const newCfg = { [agent.mcpServersKey]: { lightmcp: agent.lightMCPEntry } };
-    writeFileSync(agent.configPath, JSON.stringify(newCfg, null, 2) + "\n", "utf-8");
+    atomicWriteSync(agent.configPath, JSON.stringify(newCfg, null, 2) + "\n");
     return "backed up invalid config, created new with LightMCP";
   }
 
@@ -260,13 +268,13 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
         for (const key of Object.keys(backupServers)) {
           lcCfg.mcpServers[key] = backupServers[key];
         }
-        writeFileSync(lightmcpConfigPath, JSON.stringify(lcCfg, null, 2) + "\n", "utf-8");
+        atomicWriteSync(lightmcpConfigPath, JSON.stringify(lcCfg, null, 2) + "\n");
       } catch { /* config write failed, non-fatal */ }
     }
 
     // Replace agent config with ONLY LightMCP
     const cleanCfg = { [agent.mcpServersKey]: { lightmcp: agent.lightMCPEntry } };
-    writeFileSync(agent.configPath, JSON.stringify(cleanCfg, null, 2) + "\n", "utf-8");
+    atomicWriteSync(agent.configPath, JSON.stringify(cleanCfg, null, 2) + "\n");
 
     const serverCount = Object.keys(backupServers).length;
     return `saved ${serverCount} server(s) to LightMCP, agent config now LightMCP-only`;
@@ -274,7 +282,7 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
     // Just add LightMCP
     servers.lightmcp = agent.lightMCPEntry;
     cfg[agent.mcpServersKey] = servers;
-    writeFileSync(agent.configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+    atomicWriteSync(agent.configPath, JSON.stringify(cfg, null, 2) + "\n");
     return "added LightMCP to existing servers";
   }
 }
