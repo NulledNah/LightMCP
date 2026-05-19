@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
 [![Ollama](https://img.shields.io/badge/Ollama-required-blue)](https://ollama.com)
-[![Version](https://img.shields.io/badge/version-0.4.0-orange)](https://github.com/NulledNah/LightMCP/releases)
+[![Version](https://img.shields.io/badge/version-0.4.1-orange)](https://github.com/NulledNah/LightMCP/releases)
 
 ---
 
