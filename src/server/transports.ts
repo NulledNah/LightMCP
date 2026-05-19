@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { LightMCPConfig } from "../types.js";
-import { bumpActivity } from "./mcp_server.js";
+import { bumpActivity } from "../utils.js";
 
 // ── Middleware shared by HTTP mode ─────────────────────────
 

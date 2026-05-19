@@ -13,13 +13,13 @@ import type { GetToolsInput } from "./handlers.js";
 import { callTool } from "./proxy.js";
 import { createHttpTransport, createStdioTransport, type TransportHandle } from "./transports.js";
 import { qualifyToolName } from "../types.js";
+import { getLastActivity } from "../utils.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import type { Express } from "express";
 
 let _mcpServer: McpServer | null = null;
 let _transportHandle: TransportHandle | null = null;
-let _lastActivity: number = Date.now();
 
 export function getMcpServer(): McpServer {
   if (!_mcpServer) throw new Error("McpServer not initialized — call createMcpServer() first");
@@ -28,10 +28,6 @@ export function getMcpServer(): McpServer {
 
 export function getApp(): Express | undefined {
   return _transportHandle?.app as Express | undefined;
-}
-
-export function bumpActivity(): void {
-  _lastActivity = Date.now();
 }
 
 export type ServerStartMode = "http" | "stdio";
@@ -154,7 +150,7 @@ export async function startServer(mode: ServerStartMode = "http"): Promise<void>
   let _idleInterval: NodeJS.Timeout | null = null;
   if (idleTimeoutSeconds > 0) {
     _idleInterval = setInterval(() => {
-      const elapsed = (Date.now() - _lastActivity) / 1_000;
+      const elapsed = (Date.now() - getLastActivity()) / 1_000;
       if (elapsed >= idleTimeoutSeconds) {
         shutdown("IDLE");
       }

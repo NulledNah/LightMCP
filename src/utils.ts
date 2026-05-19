@@ -1,5 +1,5 @@
 // ============================================================
-// LightMCP — Shared Process Utilities
+// LightMCP — Shared Utilities
 // ============================================================
 import type { ChildProcess } from "node:child_process";
 
@@ -25,4 +25,14 @@ export function killProcessGraceful(proc: ChildProcess): void {
   } else {
     try { proc.kill("SIGTERM"); } catch { /* already dead */ }
   }
+}
+
+let _lastActivity: number = Date.now();
+
+export function bumpActivity(): void {
+  _lastActivity = Date.now();
+}
+
+export function getLastActivity(): number {
+  return _lastActivity;
 }
