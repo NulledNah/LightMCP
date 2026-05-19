@@ -36,18 +36,20 @@ function resolveLightMCPConfigPath(): string {
 function resolveAntigravityConfigPath(): string {
   const standalone = path.join(homeDir, ".gemini", "antigravity", "mcp_config.json");
 
+  // Standalone path takes priority — it's the direct install location
+  if (existsSync(path.dirname(standalone))) return standalone;
+
+  // Fall back to IDE-managed configs
   if (isWindows) {
     const vscode = path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     if (existsSync(path.dirname(vscode))) return vscode;
   } else {
-    // Linux/macOS: VS Code or VSCodium global storage
     const vscodeLinux = path.join(homeDir, ".config", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     const vscodiumLinux = path.join(homeDir, ".config", "VSCodium", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     if (existsSync(path.dirname(vscodeLinux))) return vscodeLinux;
     if (existsSync(path.dirname(vscodiumLinux))) return vscodiumLinux;
   }
 
-  if (existsSync(path.dirname(standalone))) return standalone;
   return standalone; // default to standalone path
 }
 
