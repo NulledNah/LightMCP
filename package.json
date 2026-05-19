@@ -1,6 +1,6 @@
 {
   "name": "lightmcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "A local LLM-powered semantic tool router for MCP — bypass the 100-tool limit and reduce context window usage in Antigravity and compatible AI agents.",
   "keywords": [
     "mcp",
