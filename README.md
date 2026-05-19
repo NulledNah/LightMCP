@@ -1,6 +1,6 @@
 # LightMCP
 
-> **A local LLM-powered semantic tool router for MCP** -- bypass the 100-tool limit and reduce context window usage in any MCP-compatible AI agent.
+> **A local LLM-powered semantic tool router for MCP** -- bypasses the limit on the number of usable tools and reduces the context window usage in any MCP-compatible AI agent by selecting only the necessary tools.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
