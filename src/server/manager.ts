@@ -55,9 +55,24 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
   const cfg = await loadConfig();
   const results: ListEntry[] = [];
 
+  const seenKeys = new Set<string>();
+
+  function serverFingerprint(name: string, serverCfg: MCPServerConfig): string {
+    if (serverCfg.serverUrl) return `http:${serverCfg.serverUrl}`;
+    const cmd = serverCfg.command ?? "?";
+    const argStr = (serverCfg.args ?? []).join(" ");
+    return `stdio:${cmd} ${argStr}`.trim();
+  }
+
   // 1. Inline servers
   for (const [name, serverCfg] of Object.entries(cfg.mcpServers ?? {})) {
     if (name === "lightmcp") continue;
+    const fp = serverFingerprint(name, serverCfg);
+    if (seenKeys.has(fp)) {
+      console.warn(`  [WARN] Skipping duplicate server "${name}" (same endpoint as another server)`);
+      continue;
+    }
+    seenKeys.add(fp);
     results.push({
       name,
       config: serverCfg,
@@ -79,6 +94,12 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
           if (name === "lightmcp") continue;
           // Only add if not already in inline
           if (results.some(r => r.name === name)) continue;
+          const fp = serverFingerprint(name, serverCfg);
+          if (seenKeys.has(fp)) {
+            console.warn(`  [WARN] Skipping duplicate agent server "${name}" (same endpoint as another server)`);
+            continue;
+          }
+          seenKeys.add(fp);
           results.push({
             name,
             config: { ...serverCfg },
