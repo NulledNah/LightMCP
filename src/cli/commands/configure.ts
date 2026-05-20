@@ -1,6 +1,10 @@
 // ============================================================
 // LightMCP — configure command
 // ============================================================
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function configureAction(): Promise<void> {
   const { createInterface } = await import("node:readline");
@@ -42,6 +46,24 @@ export async function configureAction(): Promise<void> {
     console.log("");
     const results = configureAllAgents(mode, agents);
     for (const r of results) console.log(`  ${r}`);
+
+    // Install agent rules for configured agents
+    if (choice !== "3") {
+      const { installAgentRule } = await import("../../setup/scanner.js");
+      const templateDir = path.resolve(__dirname, "../../../scripts");
+      const cliPath = path.resolve(__dirname, "../../../dist/cli/index.js");
+
+      for (const agent of agents) {
+        const replaced = installAgentRule(
+          agent.name,
+          templateDir,
+          agent.name === "Antigravity" ? { "<path-to-LightMCP>": cliPath } : undefined
+        );
+        if (replaced) {
+          console.log(`  [OK] ${agent.name} global rule installed`);
+        }
+      }
+    }
 
     if (choice === "3") {
       console.log(generateManualInstructions(agents));

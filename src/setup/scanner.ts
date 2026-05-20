@@ -3,7 +3,7 @@
 // Detects installed AI agents and configures their MCP servers
 // for use with LightMCP.
 // ============================================================
-import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -353,4 +353,147 @@ export function generateManualInstructions(agents: DetectedAgent[]): string {
   result.push(`${bottomBar}\n`);
 
   return result.join("\n");
+}
+
+// ── Agent rule installation / removal ──────────────────────
+
+const RULE_START = "<!-- LIGHTMCP_RULE_START -->";
+const RULE_END = "<!-- LIGHTMCP_RULE_END -->";
+
+interface AgentRuleDef {
+  filePath: string;
+  template: "agent" | "antigravity";
+  /** Optional frontmatter for .mdc format */
+  frontmatter?: string;
+}
+
+const AGENT_RULES: Record<string, AgentRuleDef> = {
+  Antigravity: {
+    filePath: path.join(homeDir, ".gemini", "GEMINI.md"),
+    template: "antigravity",
+  },
+  "Claude Code": {
+    filePath: path.join(homeDir, ".claude", "CLAUDE.md"),
+    template: "agent",
+  },
+  "openCode CLI": {
+    filePath: path.join(homeDir, ".config", "opencode", "AGENTS.md"),
+    template: "agent",
+  },
+  "openCode Desktop": {
+    filePath: path.join(homeDir, ".config", "opencode", "AGENTS.md"),
+    template: "agent",
+  },
+  Cursor: {
+    filePath: path.join(homeDir, ".cursor", "rules", "lightmcp.mdc"),
+    template: "agent",
+    frontmatter: "---\nalwaysApply: true\ndescription: LightMCP tool discovery protocol — always call get_task_tools before using MCP tools\n---\n",
+  },
+};
+
+function getRuleTemplateDir(): string {
+  return path.resolve(__agentDir, "..", "..", "scripts");
+}
+
+function buildRuleContent(agentName: string, templateDir: string): string {
+  const def = AGENT_RULES[agentName];
+  if (!def) return "";
+
+  const templateFile = def.template === "antigravity" ? "antigravity_rule.md" : "agent_rule.md";
+  const templatePath = path.join(templateDir, templateFile);
+
+  if (!existsSync(templatePath)) {
+    console.warn(`  [WARN] Rule template not found: ${templatePath}`);
+    return "";
+  }
+
+  let content = readFileSync(templatePath, "utf-8");
+
+  if (def.frontmatter) {
+    content = def.frontmatter + "\n" + content;
+  }
+
+  return content;
+}
+
+/** Installs the LightMCP agent rule file for the given agent. Prepends to existing content. */
+export function installAgentRule(agentName: string, templateDir?: string, replacements?: Record<string, string>): boolean {
+  const def = AGENT_RULES[agentName];
+  if (!def) return false;
+
+  let ruleContent = buildRuleContent(agentName, templateDir ?? getRuleTemplateDir());
+  if (!ruleContent) return false;
+
+  if (replacements) {
+    for (const [key, value] of Object.entries(replacements)) {
+      ruleContent = ruleContent.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), value);
+    }
+  }
+
+  let existing = "";
+  try {
+    if (existsSync(def.filePath)) {
+      existing = readFileSync(def.filePath, "utf-8");
+    }
+  } catch { /* ignore */ }
+
+  // If rule is already installed, skip
+  if (existing.includes(RULE_START)) return false;
+
+  // Ensure parent directory exists
+  const parent = path.dirname(def.filePath);
+  if (!existsSync(parent)) {
+    try { mkdirSync(parent, { recursive: true }); } catch { /* ignore */ }
+  }
+
+  const finalContent = (ruleContent.trim() + "\n\n" + existing.trim()).trim() + "\n";
+  atomicWriteSync(def.filePath, finalContent);
+  return true;
+}
+
+/** Removes the LightMCP rule block from the given agent's file. */
+export function removeAgentRule(agentName: string): boolean {
+  const def = AGENT_RULES[agentName];
+  if (!def) return false;
+
+  let content: string;
+  try {
+    if (!existsSync(def.filePath)) return false;
+    content = readFileSync(def.filePath, "utf-8");
+  } catch {
+    return false;
+  }
+
+  const startIdx = content.indexOf(RULE_START);
+  if (startIdx === -1) return false;
+
+  const endIdx = content.indexOf(RULE_END, startIdx);
+  if (endIdx === -1) return false;
+
+  const before = content.slice(0, startIdx).trimEnd();
+  const after = content.slice(endIdx + RULE_END.length).trimStart();
+  const cleaned = [before, after].filter(Boolean).join("\n\n");
+
+  if (!cleaned.trim()) {
+    try { rmSync(def.filePath); } catch { /* ignore */ }
+  } else {
+    atomicWriteSync(def.filePath, cleaned.trim() + "\n");
+  }
+
+  return true;
+}
+
+/** Removes LightMCP rules from all agents. */
+export async function removeAllAgentRules(): Promise<string[]> {
+  const results: string[] = [];
+  for (const name of Object.keys(AGENT_RULES)) {
+    try {
+      if (removeAgentRule(name)) {
+        results.push(`[${name}] Rule removed`);
+      }
+    } catch (err) {
+      results.push(`[${name}] ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return results;
 }

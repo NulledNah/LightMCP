@@ -75,7 +75,7 @@ lightmcp start
 3. Builds the tool catalog from all downstream MCP servers
 4. Generates procedural usage tips for every tool via the local LLM
 5. Scans for AI agents and lets you choose which to configure
-6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`) if Antigravity is selected
+6. Installs mandatory tool discovery rules for all configured agents (Antigravity, openCode, Claude Code, Cursor)
 7. Registers Windows startup via Task Scheduler (background, no visible window)
    - On Linux, registers a systemd user service (background, no terminal)
 
