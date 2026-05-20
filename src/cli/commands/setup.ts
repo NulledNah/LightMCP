@@ -251,27 +251,19 @@ Tip (max 100 chars):`;
           console.log(generateManualInstructions(selectedAgents));
         }
 
-        // Install global rule for Antigravity
-        if (selectedAgents.some(a => a.name === "Antigravity")) {
-          const homedir = osMod.default.homedir();
-          const geminiMdPath = pathMod.resolve(homedir, ".gemini", "GEMINI.md");
-          const templatePath = path.resolve(__dirname, "../../../scripts/antigravity_rule.md");
+        // Install agent rules for all selected agents
+        const templateDir = path.resolve(__dirname, "../../../scripts");
+        const cliPath = path.resolve(__dirname, "../../../dist/cli/index.js");
+        const { installAgentRule } = await import("../../setup/scanner.js");
 
-          if (existsSync(templatePath)) {
-            const templateContent = await readFile(templatePath, "utf-8");
-            let existingContent = "";
-            if (existsSync(geminiMdPath)) {
-              existingContent = await readFile(geminiMdPath, "utf-8");
-            }
-
-            const cliPath = path.resolve(__dirname, "../../../dist/cli/index.js");
-            const resolvedContent = templateContent.replace(/<path-to-LightMCP>/g, cliPath);
-
-            const finalContent = resolvedContent.trim() + "\n\n" + existingContent.trim();
-            await writeFile(geminiMdPath, finalContent.trim() + "\n", "utf-8");
-            console.log(`  [OK] Antigravity global rule installed at ${geminiMdPath}`);
-          } else {
-            console.warn("  [WARN] antigravity_rule.md template not found — skip global rule");
+        for (const agent of selectedAgents) {
+          const replaced = installAgentRule(
+            agent.name,
+            templateDir,
+            agent.name === "Antigravity" ? { "<path-to-LightMCP>": cliPath } : undefined
+          );
+          if (replaced) {
+            console.log(`  [OK] ${agent.name} global rule installed`);
           }
         }
       } else {
