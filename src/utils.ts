@@ -1,9 +1,19 @@
 // ============================================================
-// LightMCP — Shared Process Utilities
+// LightMCP — Shared Utilities
 // ============================================================
 import type { ChildProcess } from "node:child_process";
 
 const isWindows = process.platform === "win32";
+
+export function checkNodeVersion(): void {
+  const [major] = process.versions.node.split(".").map(Number);
+  if (major < 20) {
+    console.warn(
+      `[WARN] LightMCP requires Node.js 20+. You are running ${process.versions.node}.\n` +
+      "       Some features may not work correctly."
+    );
+  }
+}
 
 export function killProcess(proc: ChildProcess): void {
   if (isWindows && proc.pid) {
@@ -25,4 +35,14 @@ export function killProcessGraceful(proc: ChildProcess): void {
   } else {
     try { proc.kill("SIGTERM"); } catch { /* already dead */ }
   }
+}
+
+let _lastActivity: number = Date.now();
+
+export function bumpActivity(): void {
+  _lastActivity = Date.now();
+}
+
+export function getLastActivity(): number {
+  return _lastActivity;
 }

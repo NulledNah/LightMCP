@@ -229,7 +229,7 @@ export async function removeServer(
       } catch { /* skip — backup write failure is non-fatal */ }
     }
 
-    // Also mark in standalone Antigravity backup
+    // Also mark in standalone Antigravity agent backup
     const standaloneBackup = path.join(os.homedir(), ".gemini", "antigravity", "lightmcp_servers.json");
     if (existsSync(standaloneBackup) && standaloneBackup !== backupPath) {
       try {

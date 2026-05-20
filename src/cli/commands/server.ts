@@ -70,18 +70,33 @@ export async function serverCommand(
         return;
       }
 
-      let inline = 0, agent = 0, disabled = 0;
-      console.log("\n┌─ LightMCP Servers ───────────────────────────────────────────────────┐");
+      let inline = 0;
+      let agent = 0;
+      let disabled = 0;
+
+      const tagWidth = 10;
+      const transportWidth = 8;
+
+      const maxName = Math.max(...servers.map(s => s.name.length), 4);
+      const nameWidth = maxName + 2;
+
+      const bodyLines: string[] = [];
 
       for (const s of servers) {
-        const tag = s.disabled ? "[disabled]" : s.source === "inline" ? "[inline]  " : "[agent]   ";
+        const tag = s.disabled
+          ? "[disabled]"
+          : s.source === "inline"
+            ? "[inline]  "
+            : "[agent]   ";
         const transport = s.config.serverUrl ? "http" : "stdio";
         const cmdInfo = s.config.serverUrl
           ? s.config.serverUrl
           : `${s.config.command ?? "?"} ${(s.config.args ?? []).join(" ")}`.trim();
         const agentInfo = s.agentName ? `(${s.agentName})` : "";
 
-        console.log(`│  ${tag} ${s.name.padEnd(20)} ${transport.padEnd(8)} ${cmdInfo.padEnd(30)} ${agentInfo}`.slice(0, 78) + " │");
+        bodyLines.push(
+          `${tag} ${s.name.padEnd(nameWidth)}${transport.padEnd(transportWidth)}${cmdInfo} ${agentInfo}`.trimEnd()
+        );
 
         if (s.source === "inline") inline++;
         else agent++;
@@ -91,14 +106,37 @@ export async function serverCommand(
       const allCount = await listServers(true);
       const hidden = allCount.length - servers.length;
 
-      console.log("│                                                                       │");
-      console.log(`│  ─────────────────────────────────────────────────────────────────    │`);
-      console.log(`│  ${servers.length} server(s): ${inline} inline, ${agent} from agents${disabled > 0 ? `, ${disabled} disabled` : ""}`.padEnd(78) + " │");
-      if (hidden > 0) {
-        console.log(`│  ${hidden} disabled (use --all to show)`.padEnd(78) + " │");
+      const footer = [
+        "",
+        `${servers.length} server(s): ${inline} inline, ${agent} from agents${disabled > 0 ? `, ${disabled} disabled` : ""}`,
+        hidden > 0 ? `${hidden} disabled (use --all to show)` : null,
+        "(lightmcp bridge hidden — managed automatically)",
+      ].filter((l): l is string => l !== null);
+
+      const allLines = [...bodyLines, ...footer];
+      const contentWidth = Math.max(...allLines.map(l => l.length));
+
+      const drawLine = (l: string) => {
+        console.log(`│ ${l.padEnd(contentWidth)} │`);
+      };
+
+      const boxW = contentWidth + 4;
+      const titleLabel = "─ LightMCP Servers ";
+      const topBar = "─".repeat(Math.max(0, boxW - titleLabel.length - 2));
+      console.log(`\n┌${titleLabel}${topBar}┐`);
+
+      for (const line of bodyLines) {
+        drawLine(line);
       }
-      console.log("│  (lightmcp bridge hidden — managed automatically)                     │");
-      console.log("└───────────────────────────────────────────────────────────────────────┘\n");
+
+      drawLine("");
+      drawLine("─".repeat(contentWidth));
+
+      for (const line of footer) {
+        drawLine(line);
+      }
+
+      console.log(`└${"─".repeat(contentWidth + 2)}┘\n`);
       break;
     }
 
@@ -114,4 +152,5 @@ export async function serverCommand(
       break;
     }
   }
+  process.exit(0);
 }

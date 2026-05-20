@@ -102,12 +102,11 @@ describe('config.ts', () => {
     });
 
     it('should fallback to default antigravity location if exists', async () => {
-      const defaultPath = path.join(os.homedir(), '.gemini', 'antigravity', 'mcp_config.json');
+      const configDir = path.join(os.homedir(), '.gemini', 'config', 'mcp_config.json');
       vi.mocked(fs.existsSync).mockReturnValue(true);
       
       const result = await resolveMcpConfigPath({} as LightMCPConfig);
-      expect(result).toBe(defaultPath);
-      expect(fs.existsSync).toHaveBeenCalledWith(defaultPath);
+      expect(result).toBe(configDir);
     });
 
     it('should throw if it cannot find it', async () => {

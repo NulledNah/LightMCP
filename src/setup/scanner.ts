@@ -32,23 +32,29 @@ function resolveLightMCPConfigPath(): string {
   return path.join(__agentDir, "..", CONFIG_FILENAME);
 }
 
-/** Resolve Antigravity MCP config path (cross-platform) */
+/** Resolve Antigravity MCP config path. Antigravity 2.0 uses config/mcp_config.json. */
 function resolveAntigravityConfigPath(): string {
+  const configDir = path.join(homeDir, ".gemini", "config", "mcp_config.json");
   const standalone = path.join(homeDir, ".gemini", "antigravity", "mcp_config.json");
 
+  // Antigravity 2.0
+  if (existsSync(path.dirname(configDir))) return configDir;
+
+  // Antigravity 1.x standalone
+  if (existsSync(path.dirname(standalone))) return standalone;
+
+  // Fall back to IDE-managed configs
   if (isWindows) {
     const vscode = path.join(process.env.APPDATA ?? "", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     if (existsSync(path.dirname(vscode))) return vscode;
   } else {
-    // Linux/macOS: VS Code or VSCodium global storage
     const vscodeLinux = path.join(homeDir, ".config", "Code", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     const vscodiumLinux = path.join(homeDir, ".config", "VSCodium", "User", "globalStorage", "google.antigravity", "mcp_config.json");
     if (existsSync(path.dirname(vscodeLinux))) return vscodeLinux;
     if (existsSync(path.dirname(vscodiumLinux))) return vscodiumLinux;
   }
 
-  if (existsSync(path.dirname(standalone))) return standalone;
-  return standalone; // default to standalone path
+  return configDir;
 }
 
 // ── Agent definitions ─────────────────────────────────────
@@ -320,8 +326,8 @@ export function configureAllAgents(
 
 /** Generate manual setup instructions for all detected agents. */
 export function generateManualInstructions(agents: DetectedAgent[]): string {
+  const titlePrefix = "── Manual Setup Instructions ";
   const lines: string[] = [];
-  lines.push("\n── Manual Setup Instructions ─────────────────────────────\n");
 
   for (const detected of agents) {
     const agent = getAgentDef(detected.name);
@@ -334,8 +340,17 @@ export function generateManualInstructions(agents: DetectedAgent[]): string {
     lines.push("");
   }
 
-  lines.push("  After editing, restart the agent for changes to take effect.");
-  lines.push("─────────────────────────────────────────────────────────\n");
+  const footer = "  After editing, restart the agent for changes to take effect.";
+  lines.push(footer);
 
-  return lines.join("\n");
+  const maxLen = Math.max(...lines.map(l => l.length), titlePrefix.length + 10);
+  const topBar = "─".repeat(Math.max(0, maxLen - titlePrefix.length));
+  const bottomBar = "─".repeat(maxLen + 2);
+
+  const result: string[] = [];
+  result.push(`\n${titlePrefix}${topBar}\n`);
+  result.push(...lines);
+  result.push(`${bottomBar}\n`);
+
+  return result.join("\n");
 }

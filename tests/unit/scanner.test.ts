@@ -39,6 +39,8 @@ describe('scanner.ts', () => {
 
     it('should detect Antigravity when .gemini/antigravity exists', async () => {
       mockExistsSync.mockImplementation((p: string) => {
+        // Antigravity 2.0 checks .gemini/config/ first
+        if (p.includes('.gemini') && p.includes('config')) return true;
         return p.includes('.gemini') && p.includes('antigravity');
       });
 

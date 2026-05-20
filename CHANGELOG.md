@@ -1,5 +1,25 @@
 # Changelog
 
+## [v0.4.1] - 2026-05-20
+
+### Added
+- **Per-session McpServer isolation**: every HTTP client session gets its own `McpServer` instance, eliminating cross-client tool registration collisions. `SessionRegistry` with automatic GC frees idle sessions.
+- **Linux systemd auto-start** (`scripts/setup.sh`): `lightmcp setup` now registers a systemd user service on Linux, running LightMCP in the background at login with `Restart=on-failure`.
+- **Hidden Windows auto-start**: startup task now uses a VBS launcher with `wscript.exe` for truly invisible background startup (no PowerShell flash).
+- **Dependency checks**: Node.js ≥ 20 warning at CLI startup; `curl` availability check on Linux before Ollama install.
+- **No-truncation `lightmcp server list`**: dynamic column widths, adaptive box borders, content never cut off.
+
+### Fixed
+- **`lightmcp build-catalog` hang**: added `process.exit(0)` and stream cleanup (`stdin.end()`, `stdout.destroy()`) to prevent child process handles from keeping the event loop alive.
+- **`lightmcp server enable/disable/add/remove` hang**: `process.exit(0)` at end of all `server` subcommands.
+- **Box-drawing alignment** in `server list`, `status`, and manual setup instructions — switched from hardcoded widths to dynamic width computation.
+- **Progress display garbling** in `generate-tips` — each line now self-contained instead of relying on `process.stdout.write` leftovers.
+
+### Changed
+- **`handleGetTools` refactored** into `resolveToolSelection` + `registerSelectedTools`; new `handleGetToolsForSession()` accepts explicit `McpServer` + `RegisteredTool[]` parameters.
+- **`MultiplexedHttpTransport` removed** — replaced by `SessionRegistry` with per-session `McpServer` + `StreamableHTTPServerTransport`.
+- **Internal `buildCatalog()` calls** (from enable/disable/add/remove) now do proper stream cleanup on every exit path.
+
 ## [v0.4.0] - 2026-05-19
 
 ### Added
