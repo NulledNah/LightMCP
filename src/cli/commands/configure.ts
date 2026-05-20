@@ -72,4 +72,5 @@ export async function configureAction(): Promise<void> {
     console.log("  Invalid choice — no changes made.");
   }
   console.log("");
+  process.exit(0);
 }

@@ -320,4 +320,5 @@ Tip (max 100 chars):`;
 
   console.log("\n[OK] LightMCP setup complete!");
   console.log("  Then run: lightmcp start\n");
+  process.exit(0);
 }
