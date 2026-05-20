@@ -152,17 +152,7 @@ If you skipped agent configuration during setup, add LightMCP to your agent's `m
 }
 ```
 
-For agents that support HTTP (Claude Code, Cursor, openCode):
-
-```json
-{
-  "mcpServers": {
-    "lightmcp": {
-      "serverUrl": "http://127.0.0.1:3131/mcp"
-    }
-  }
-}
-```
+For agents that support HTTP, the exact config format varies per agent. See the [Client Compatibility](#client-compatibility) table above for agent-specific examples (Claude Code uses `type: "http"`, Cursor uses `url`, openCode uses `type: "remote"`).
 
 **Important:** Only LightMCP goes in the agent's config. All other MCP servers are managed by LightMCP's own `lightmcp_config.json`. When using **isolate** mode (recommended), servers are automatically copied to LightMCP's inline `mcpServers` alongside a backup saved for uninstall restoration.
 
@@ -183,22 +173,30 @@ lightmcp build-catalog
 
 ## Architecture
 
-LightMCP v0.4.0 uses a **clean single-transport-per-instance** design:
+LightMCP v0.4.1 uses **per-session isolation** for HTTP and a singleton for STDIO:
 
 ```
-McpServer (SDK singleton)
-├── registerTool("get_task_tools")          ← always
-├── registerTool("_always_on_tool")         ← if configured
-└── [dynamic] registerTool("kicad_xxx")     ← after get_task_tools
+HTTP mode (lightmcp start):
+  SessionRegistry (auto-GC after idle timeout)
+  ├── Session A → McpServer → StreamableHTTPServerTransport
+  │     ├── registerTool("get_task_tools")
+  │     ├── registerTool("_always_on_tool")     ← if configured
+  │     └── [dynamic] registerTool("kicad_xxx") ← after get_task_tools
+  └── Session B → McpServer → StreamableHTTPServerTransport
+        └── ... (fully isolated — no cross-client collisions)
+
+STDIO mode (lightmcp start --stdio):
+  McpServer (singleton)
+  ├── registerTool("get_task_tools")
+  ├── registerTool("_always_on_tool")     ← if configured
+  └── [dynamic] registerTool("kicad_xxx") ← after get_task_tools
         ↑
-   StreamableHTTPServerTransport  (HTTP mode: lightmcp start)
-        or
-   StdioServerTransport           (STDIO mode: lightmcp start --stdio)
+   StdioServerTransport
 ```
 
-**Two modes, same McpServer:**
-- **HTTP**: `lightmcp start` → `POST /mcp`, session management via SDK
-- **STDIO**: `lightmcp start --stdio` → stdin/stdout JSON-RPC, native SDK transport
+**Two transports, same protocol:**
+- **HTTP**: `lightmcp start` → `POST /mcp`, each client gets its own isolated McpServer instance with independent tool registrations. Session GC frees idle sessions automatically.
+- **STDIO**: `lightmcp start --stdio` → stdin/stdout JSON-RPC, singleton McpServer, native SDK transport
 
 **Filtered mode** (default): agent sees only `get_task_tools` + `alwaysOn` tools. Calls `get_task_tools("task")` → LLM selects relevant tools → dynamically registers them → `notifications/tools/list_changed`.
 
@@ -355,7 +353,7 @@ Detected agents and their MCP config paths:
 
 | Agent | Config Path |
 |-------|------------|
-| Antigravity | `~/.gemini/antigravity/mcp_config.json` or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` (Windows) or `~/.config/Code/User/globalStorage/google.antigravity/mcp_config.json` (Linux) |
+| Antigravity | `~/.gemini/config/mcp_config.json` (2.0) or `~/.gemini/antigravity/mcp_config.json` (1.x) or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` (Windows) or `~/.config/Code/User/globalStorage/google.antigravity/mcp_config.json` (Linux) |
 | Claude Code | `~/.claude.json` |
 | openCode CLI | `~/.config/opencode/opencode.json` |
 | openCode Desktop | `~/.config/opencode/opencode.json` (shared with CLI) |
@@ -372,28 +370,28 @@ Once running, your agent connects only to LightMCP:
 2. Language detected (Italian) -- auto-translated to English via Ollama
 3. Domain-aware pre-filter: 169 tools -> 3 Fusion tools
 4. Ollama selects: fusion_mcp_execute
-5. LightMCP dynamically registers the selected tools on its MCP server
-6. Agent calls fusion_mcp_execute via tools/call with Python script arguments
-7. Agent calls fusion_mcp_read to verify the result
+5. LightMCP dynamically registers the selected tools with namespaced names (e.g. autodesk-fusion_fusion_mcp_execute)
+6. Agent calls autodesk-fusion_fusion_mcp_execute via tools/call with Python script arguments
+7. Agent calls autodesk-fusion_fusion_mcp_read to verify the result
 ```
 
 More examples:
 ```
 # KiCad workflow
 lightmcp get-tools "create a KiCad footprint for a JST-SH connector"
-lightmcp call search_footprints --search_term "JST-SH"
-lightmcp call create_footprint --name "JST-SH" --library "Connectors"
+lightmcp call kicad_search_footprints --search_term "JST-SH"
+lightmcp call kicad_create_footprint --name "JST-SH" --library "Connectors"
 
 # Fusion 360 workflow with --file for complex args
 lightmcp get-tools "generate a 10mm cube in Autodesk Fusion"
-lightmcp call fusion_mcp_execute --file args.json
-lightmcp call fusion_mcp_read --file read_args.json --output screenshot.png
+lightmcp call autodesk-fusion_fusion_mcp_execute --file args.json
+lightmcp call autodesk-fusion_fusion_mcp_read --file read_args.json --output screenshot.png
 
 # Chrome DevTools workflow
 lightmcp get-tools "debug performance of my landing page"
-lightmcp call navigate_page --url "https://mysite.com"
-lightmcp call performance_start_trace --reload true
-lightmcp call take_screenshot --output landing.png
+lightmcp call chrome-devtools_navigate_page --url "https://mysite.com"
+lightmcp call chrome-devtools_performance_start_trace --reload true
+lightmcp call chrome-devtools_take_screenshot --output landing.png
 
 # Server management
 lightmcp server list
@@ -405,28 +403,28 @@ The agent never sees the full tool list -- only the relevant ones per task. All 
 
 ---
 
-## Antigravity Global Rule
+## Agent Rules
 
-`lightmcp setup` automatically installs a global rule at `~/.gemini/GEMINI.md` that teaches Antigravity how to use LightMCP:
+`lightmcp setup` automatically installs mandatory tool discovery rules for all configured AI agents. The rules are wrapped in `<!-- LIGHTMCP_RULE_START -->` / `<!-- LIGHTMCP_RULE_END -->` markers, enabling clean removal during `lightmcp uninstall` — only the LightMCP block is removed, all other user content is preserved.
 
-- Always call `get_task_tools` before any task
-- Use `--file` for complex JSON arguments
-- The template path is automatically resolved to the actual installation directory
+| Agent | Rule File | Format |
+|-------|-----------|--------|
+| Antigravity | `~/.gemini/GEMINI.md` | CLI-based (`lightmcp get-tools`) |
+| Claude Code | `~/.claude/CLAUDE.md` | `get_task_tools` tool call |
+| openCode | `~/.config/opencode/AGENTS.md` | `get_task_tools` tool call |
+| Cursor | `~/.cursor/rules/lightmcp.mdc` | `get_task_tools` with `alwaysApply: true` |
 
-To install manually:
-```powershell
-$template = Get-Content scripts\antigravity_rule.md -Raw
-$geminiMd = "$env:USERPROFILE\.gemini\GEMINI.md"
-if (Test-Path $geminiMd) {
-  $existing = Get-Content $geminiMd -Raw
-  Set-Content $geminiMd ($template.Trim() + "`n`n" + $existing.Trim()) -Encoding utf8
-} else {
-  New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.gemini" | Out-Null
-  Copy-Item scripts\antigravity_rule.md $geminiMd
-}
+The rules instruct each agent to:
+- Always call `get_task_tools` before any task requiring tools
+- Never discover or invoke MCP tools outside LightMCP
+- Re-call `get_task_tools` whenever the task changes significantly
+
+To re-apply rules without re-running full setup:
+```bash
+lightmcp configure
 ```
 
-If `~/.gemini/GEMINI.md` already exists, the template is prepended to preserve your existing rules.
+This installs or refreshes the rules for all detected agents. Existing user content in rule files is preserved.
 
 ---
 
