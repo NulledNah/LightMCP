@@ -334,7 +334,10 @@ export async function buildCatalog(opts: {
     const endpointKey = serverCfg.serverUrl
       ? `http:${serverCfg.serverUrl}`
       : `stdio:${serverCfg.command ?? "?"} ${(serverCfg.args ?? []).join(" ")}`.trim();
-    if (seenEndpoints.has(endpointKey)) continue;
+    if (seenEndpoints.has(endpointKey)) {
+      console.warn(`  [WARN] Skipping duplicate "${key}" (same endpoint as another server)`);
+      continue;
+    }
     seenEndpoints.add(endpointKey);
 
     const transport: "stdio" | "http" = serverCfg.serverUrl ? "http" : "stdio";
