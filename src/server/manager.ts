@@ -68,10 +68,7 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
   for (const [name, serverCfg] of Object.entries(cfg.mcpServers ?? {})) {
     if (name === "lightmcp") continue;
     const fp = serverFingerprint(name, serverCfg);
-    if (seenKeys.has(fp)) {
-      console.warn(`  [WARN] Skipping duplicate server "${name}" (same endpoint as another server)`);
-      continue;
-    }
+    if (seenKeys.has(fp)) continue;
     seenKeys.add(fp);
     results.push({
       name,
