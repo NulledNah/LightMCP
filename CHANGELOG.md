@@ -8,6 +8,8 @@
 - **Hidden Windows auto-start**: startup task now uses a VBS launcher with `wscript.exe` for truly invisible background startup (no PowerShell flash).
 - **Dependency checks**: Node.js ≥ 20 warning at CLI startup; `curl` availability check on Linux before Ollama install.
 - **No-truncation `lightmcp server list`**: dynamic column widths, adaptive box borders, content never cut off.
+- **Agent rules for all IDEs**: `setup` and `configure` now install mandatory tool discovery rules for openCode (`~/.config/opencode/AGENTS.md`), Claude Code (`~/.claude/CLAUDE.md`), Cursor (`.cursor/rules/lightmcp.mdc` with `alwaysApply: true`), and Antigravity (`~/.gemini/GEMINI.md`). All rules use `<!-- LIGHTMCP_RULE -->` markers so `uninstall` removes only the LightMCP block, preserving other user rules.
+- **Server deduplication**: `server list` and `build-catalog` skip servers sharing the same endpoint (URL or command+args).
 
 ### Fixed
 - **`lightmcp build-catalog` hang**: added `process.exit(0)` and stream cleanup (`stdin.end()`, `stdout.destroy()`) to prevent child process handles from keeping the event loop alive.
