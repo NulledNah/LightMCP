@@ -317,6 +317,7 @@ export async function buildCatalog(opts: {
   );
 
   const toolTips = await loadToolTips();
+  const seenEndpoints = new Set<string>();
 
   for (const [key, serverCfg] of Object.entries(mcpServers)) {
     if (key === "lightmcp") {
@@ -329,6 +330,15 @@ export async function buildCatalog(opts: {
       console.log(`  [SKIP] ${key} - skipped (disabled)`);
       continue;
     }
+
+    const endpointKey = serverCfg.serverUrl
+      ? `http:${serverCfg.serverUrl}`
+      : `stdio:${serverCfg.command ?? "?"} ${(serverCfg.args ?? []).join(" ")}`.trim();
+    if (seenEndpoints.has(endpointKey)) {
+      console.warn(`  [WARN] Skipping duplicate "${key}" (same endpoint as another server)`);
+      continue;
+    }
+    seenEndpoints.add(endpointKey);
 
     const transport: "stdio" | "http" = serverCfg.serverUrl ? "http" : "stdio";
     console.log(`  [INFO] ${key} [${transport}]${isDisabled ? " (disabled)" : ""}...`);

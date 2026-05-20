@@ -274,7 +274,6 @@ export async function createHttpTransport(
 
     transport.onclose = () => {
       registry.delete(sessionId);
-      destroySession(ctx).catch(() => {});
     };
 
     return ctx;
