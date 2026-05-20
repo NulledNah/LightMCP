@@ -196,7 +196,8 @@ You can re-run configuration anytime with `lightmcp configure`.
 
 | Agent | Config Path |
 |-------|------------|
-| Antigravity | `~/.gemini/config/mcp_config.json` (2.0) or `~/.gemini/antigravity/mcp_config.json` (1.x) or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` (Windows) or `~/.config/Code/User/globalStorage/google.antigravity/mcp_config.json` (Linux) |
+| Antigravity 1.x (legacy IDE) | `~/.gemini/antigravity/mcp_config.json` (standalone) or `%APPDATA%\Code\User\globalStorage\google.antigravity\mcp_config.json` (VS Code extension, Windows) or `~/.config/Code/User/globalStorage/google.antigravity/mcp_config.json` (Linux) |
+| Antigravity 2.0 | `~/.gemini/config/mcp_config.json` |
 | Claude Code | `~/.claude.json` |
 | openCode CLI | `~/.config/opencode/opencode.json` |
 | openCode Desktop | `~/.config/opencode/opencode.json` (shared with CLI) |
@@ -210,7 +211,8 @@ You can re-run configuration anytime with `lightmcp configure`.
 
 | Agent | Rule File | Format |
 |-------|-----------|--------|
-| Antigravity | `~/.gemini/GEMINI.md` | CLI-based (`lightmcp get-tools`) |
+| Antigravity 1.x | `~/.gemini/GEMINI.md` | CLI-based (`lightmcp get-tools`) |
+| Antigravity 2.0 | `~/.gemini/GEMINI.md` | CLI-based (`lightmcp get-tools`) |
 | Claude Code | `~/.claude/CLAUDE.md` | `get_task_tools` tool call |
 | openCode | `~/.config/opencode/AGENTS.md` | `get_task_tools` tool call |
 | Cursor | `~/.cursor/rules/lightmcp.mdc` | `get_task_tools` with `alwaysApply: true` |

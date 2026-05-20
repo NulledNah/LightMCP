@@ -63,7 +63,8 @@ lightmcp start
 
 | AI Agent | Status | Transport | Config Path |
 |----------|--------|-----------|-------------|
-| **Antigravity** (VS Code) | Working | STDIO bridge | `~/.gemini/config/mcp_config.json` (2.0) |
+| **Antigravity 1.x** (legacy IDE) | Working | STDIO bridge | `~/.gemini/antigravity/mcp_config.json` |
+| **Antigravity 2.0** | Working | STDIO bridge | `~/.gemini/config/mcp_config.json` |
 | **Claude Code** | Working | HTTP `type: "http"` | `~/.claude.json` |
 | **Cursor** | Working | HTTP `url` | `~/.cursor/mcp.json` |
 | **openCode CLI** | Working | `type: "remote"` | `~/.config/opencode/opencode.json` |
