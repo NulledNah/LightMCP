@@ -48,6 +48,22 @@ export async function setupAction(): Promise<void> {
         process.exit(0);
       }
     } else {
+      let curlOk = false;
+      try {
+        execSync("curl --version", { stdio: "ignore" });
+        curlOk = true;
+      } catch { /* curl not found */ }
+
+      if (!curlOk) {
+        console.log(
+          "  [WARN] curl not found. Install it first:\n" +
+          "    Ubuntu/Debian: sudo apt install curl\n" +
+          "    Fedora:        sudo dnf install curl"
+        );
+        console.log("  After installation, re-run: lightmcp setup");
+        process.exit(0);
+      }
+
       console.log("  Installing Ollama via curl (requires root/sudo)...");
       try {
         execSync(
@@ -280,6 +296,19 @@ Tip (max 100 chars):`;
           "  [WARN] Could not register task automatically.\n" +
           `  Run manually in elevated PowerShell:\n` +
           `  powershell -ExecutionPolicy Bypass -File "${scriptPath}" -RegisterTask`
+        );
+      }
+    }
+  } else if (osMod.default.platform() === "linux") {
+    const scriptPath = path.resolve(__dirname, "../../../scripts/setup.sh");
+    if (existsSync(scriptPath)) {
+      console.log("\n[INFO] Registering Linux systemd user service...");
+      try {
+        execSync(`bash "${scriptPath}"`, { stdio: "inherit" });
+      } catch {
+        console.warn(
+          "  [WARN] Could not register service automatically.\n" +
+          `  Run manually: bash "${scriptPath}"`
         );
       }
     }

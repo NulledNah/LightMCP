@@ -3,8 +3,13 @@
 // Creates an McpServer, registers permanent tools, connects
 // a transport (HTTP or STDIO). The SDK handles all protocol
 // details — no manual JSON-RPC parsing, no dual-mode dispatch.
+//
+// In HTTP mode, session management (including per-session
+// McpServer creation) is delegated entirely to transports.ts.
+// STDIO mode keeps the singleton for backward compatibility.
 // ============================================================
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
 import { getCatalogTools } from "../catalog/loader.js";
@@ -36,8 +41,14 @@ export class McpServerManager {
 
   async create(mode: ServerStartMode): Promise<void> {
     const cfg = await loadConfig();
-    const version = await getVersion();
 
+    if (mode === "http") {
+      this.transportHandle = await createHttpTransport(cfg);
+      await this.transportHandle.start();
+      return;
+    }
+
+    const version = await getVersion();
     this.mcpServer = new McpServer({ name: "lightmcp", version });
 
     this.mcpServer.registerTool(
@@ -71,9 +82,10 @@ export class McpServerManager {
           qualifiedName,
           {
             description: entry.description || `Tool from ${entry.serverKey}`,
+            inputSchema: z.record(z.any()),
             _meta: { serverKey: entry.serverKey, transport: entry.serverTransport },
           },
-          async (args) => {
+          async (args: any) => {
             const result = await callTool(entry.serverKey, entry.name, args as Record<string, unknown> | undefined);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
@@ -89,9 +101,10 @@ export class McpServerManager {
           qualifiedName,
           {
             description: tool.description || `Tool from ${tool.serverKey}`,
+            inputSchema: z.record(z.any()),
             _meta: { serverKey: tool.serverKey, transport: tool.serverTransport },
           },
-          async (args) => {
+          async (args: any) => {
             const result = await callTool(tool.serverKey, tool.name, args as Record<string, unknown> | undefined);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
@@ -100,12 +113,7 @@ export class McpServerManager {
       console.log(`[INFO] Full mode: registered ${catalog.length} tools from catalog`);
     }
 
-    if (mode === "http") {
-      this.transportHandle = await createHttpTransport(cfg);
-    } else {
-      this.transportHandle = createStdioTransport();
-    }
-
+    this.transportHandle = createStdioTransport();
     await this.mcpServer.connect(this.transportHandle.transport);
     await this.transportHandle.start();
   }

@@ -326,8 +326,8 @@ export function configureAllAgents(
 
 /** Generate manual setup instructions for all detected agents. */
 export function generateManualInstructions(agents: DetectedAgent[]): string {
+  const titlePrefix = "── Manual Setup Instructions ";
   const lines: string[] = [];
-  lines.push("\n── Manual Setup Instructions ─────────────────────────────\n");
 
   for (const detected of agents) {
     const agent = getAgentDef(detected.name);
@@ -340,8 +340,17 @@ export function generateManualInstructions(agents: DetectedAgent[]): string {
     lines.push("");
   }
 
-  lines.push("  After editing, restart the agent for changes to take effect.");
-  lines.push("─────────────────────────────────────────────────────────\n");
+  const footer = "  After editing, restart the agent for changes to take effect.";
+  lines.push(footer);
 
-  return lines.join("\n");
+  const maxLen = Math.max(...lines.map(l => l.length), titlePrefix.length + 10);
+  const topBar = "─".repeat(Math.max(0, maxLen - titlePrefix.length));
+  const bottomBar = "─".repeat(maxLen + 2);
+
+  const result: string[] = [];
+  result.push(`\n${titlePrefix}${topBar}\n`);
+  result.push(...lines);
+  result.push(`${bottomBar}\n`);
+
+  return result.join("\n");
 }

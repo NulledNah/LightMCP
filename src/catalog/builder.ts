@@ -80,11 +80,17 @@ async function queryToolsViaStdio(
     const allTools: ToolsDef[] = [];
     let nextReqId = 2;
 
+    function cleanup(): void {
+      try { proc.stdin?.end(); } catch { /* ignore */ }
+      try { proc.stdout?.destroy(); } catch { /* ignore */ }
+      try { proc.stderr?.destroy(); } catch { /* ignore */ }
+    }
+
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
         killProcess(proc);
-        // Timeout is not fatal — return empty
+        cleanup();
         console.warn(`  [WARN] ${serverKey}: stdio timeout, skipping`);
         resolve([]);
       }
@@ -92,7 +98,6 @@ async function queryToolsViaStdio(
 
     proc.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
-      // Try to parse each newline-delimited JSON-RPC response
       const lines = stdout.split("\n");
       stdout = lines.pop() ?? "";
       for (const line of lines) {
@@ -116,6 +121,7 @@ async function queryToolsViaStdio(
                 resolved = true;
                 clearTimeout(timer);
                 killProcess(proc);
+                cleanup();
                 resolve(allTools);
               }
             }
@@ -130,6 +136,7 @@ async function queryToolsViaStdio(
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
+        cleanup();
         console.warn(`  [WARN] ${serverKey}: spawn error — ${err.message}`);
         resolve([]);
       }
@@ -139,6 +146,7 @@ async function queryToolsViaStdio(
       if (!resolved) {
         resolved = true;
         clearTimeout(timer);
+        cleanup();
         resolve([]);
       }
     });
@@ -158,7 +166,6 @@ async function queryToolsViaStdio(
       },
     });
 
-    // Small delay to let the server initialize before we list tools
     setTimeout(() => {
       send({
         jsonrpc: "2.0",

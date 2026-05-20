@@ -9,10 +9,13 @@ import { Command } from "commander";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getVersion } from "../version.js";
+import { checkNodeVersion } from "../utils.js";
 
 // Load .env silently — no stdout pollution (MCP protocol requires clean stdout)
 import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ quiet: true });
+
+checkNodeVersion();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const version = await getVersion();

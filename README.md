@@ -76,11 +76,14 @@ lightmcp start
 4. Generates procedural usage tips for every tool via the local LLM
 5. Scans for AI agents and lets you choose which to configure
 6. Installs the Antigravity global rule (`~/.gemini/GEMINI.md`) if Antigravity is selected
-7. Registers Windows startup via Task Scheduler
+7. Registers Windows startup via Task Scheduler (background, no visible window)
+   - On Linux, registers a systemd user service (background, no terminal)
 
 ### Linux / WSL2
 
-LightMCP is fully functional on Linux and WSL2. The `lightmcp setup` command handles Ollama installation automatically via curl:
+LightMCP is fully functional on Linux (Ubuntu, Fedora, Debian, Arch, etc.) and WSL2.
+The `lightmcp setup` command handles Ollama installation automatically and registers a
+systemd user service for auto-start (runs in background, no terminal).
 
 ```bash
 # Full unattended setup (same as Windows)
@@ -102,7 +105,7 @@ node dist/cli/index.js start
 | `call` / `get-tools` | YES | YES | YES |
 | `server` (add/remove/list/disable/enable) | YES | YES | YES |
 | `setup` (auto-install Ollama) | YES `curl` | YES `curl` | YES `winget` |
-| Startup auto-start | systemd | systemd | Task Scheduler |
+| Startup auto-start | systemd (bg) | systemd (bg) | Task Scheduler (bg) |
 | 237 unit/integration tests | YES | YES | YES |
 
 ### Client Compatibility

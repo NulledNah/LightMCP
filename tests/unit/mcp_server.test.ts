@@ -7,9 +7,11 @@ const mockTransportHandleRequest = vi.fn();
 const mockTransportClose = vi.fn();
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
-  McpServer: function McpServer(this: any) {
+  McpServer: function McpServer(this: any, opts: any) {
+    this.name = opts?.name ?? 'unknown';
     this.registerTool = mockRegisterToolFn;
     this.connect = mockConnectFn;
+    this.close = vi.fn().mockResolvedValue(undefined);
     this.server = { onnotification: vi.fn() };
   } as any,
 }));
@@ -18,6 +20,8 @@ vi.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
   StreamableHTTPServerTransport: function StreamableHTTPServerTransport(this: any) {
     this.handleRequest = mockTransportHandleRequest;
     this.close = mockTransportClose;
+    this.onclose = undefined;
+    this.start = vi.fn().mockResolvedValue(undefined);
   } as any,
 }));
 
@@ -52,7 +56,7 @@ import * as config from '../../src/config.js';
 
 describe('mcp_server.ts', () => {
   const mockConfig = {
-    server: { port: 3131, host: '127.0.0.1', idleTimeoutSeconds: 0, mode: 'filtered' as const },
+    server: { port: 3099, host: '127.0.0.1', idleTimeoutSeconds: 0, mode: 'filtered' as const },
     ollama: { host: 'http://127.0.0.1:11434', model: 'test', idleTimeoutSeconds: 120, startupTimeoutSeconds: 30, maxRetries: 1 },
     catalog: { outputPath: 'catalog.json', activeOnly: false, watchMcpConfig: false },
     mcpConfigPath: null,
@@ -109,7 +113,41 @@ describe('mcp_server.ts', () => {
       }
     });
 
-    it('should create and connect an McpServer', () => {
+    it('should start the HTTP server without a global McpServer', () => {
+      const app = serverModule.getApp();
+      expect(app).toBeDefined();
+    });
+
+    it('should NOT create a global McpServer in HTTP mode (sessions manage their own)', () => {
+      expect(() => serverModule.getMcpServer()).toThrow('McpServer not initialized');
+    });
+
+    it('should register get_task_tools per session (not at global creation)', () => {
+      const toolCalls = mockRegisterToolFn.mock.calls;
+      const getToolsCall = toolCalls.find((c: any[]) => c[0] === 'get_task_tools');
+      // No global registration in HTTP mode — sessions register their own
+      expect(getToolsCall).toBeUndefined();
+    });
+  });
+
+  describe('createMcpServer (STDIO mode)', () => {
+    let serverModule: any;
+
+    beforeAll(async () => {
+      vi.clearAllMocks();
+      vi.mocked(config.loadConfig).mockResolvedValue(mockConfig as any);
+      mockRegisterToolFn.mockReturnValue({ remove: vi.fn() });
+      serverModule = await import('../../src/server/mcp_server.js');
+      await serverModule.createMcpServer('stdio');
+    });
+
+    afterAll(async () => {
+      if (serverModule) {
+        try { await serverModule.stopServer(); } catch { /* ignore */ }
+      }
+    });
+
+    it('should create and connect a global McpServer for STDIO', () => {
       expect(mockRegisterToolFn).toHaveBeenCalled();
       expect(mockConnectFn).toHaveBeenCalled();
     });

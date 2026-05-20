@@ -80,7 +80,7 @@ Tip (max 100 chars):`;
 
   for (let i = 0; i < tools.length; i++) {
     const t = tools[i];
-    process.stdout.write(`  [${i + 1}/${tools.length}] "${t.name}" ... `);
+    const tag = `[${String(i + 1).padStart(String(tools.length).length)}/${tools.length}]`;
 
     try {
       const res = await fetch(`${host}/api/chat`, {
@@ -96,7 +96,7 @@ Tip (max 100 chars):`;
       });
 
       if (!res.ok) {
-        console.log(`FAIL (HTTP ${res.status})`);
+        console.log(`  ${tag} "${t.name}" FAIL (HTTP ${res.status})`);
         failed++;
         continue;
       }
@@ -112,17 +112,17 @@ Tip (max 100 chars):`;
         ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 60 ? s.slice(0, sp) : s; })()
         : cleaned;
       if (!tip) {
-        console.log("SKIP (empty response)");
+        console.log(`  ${tag} "${t.name}" SKIP (empty response)`);
         failed++;
         continue;
       }
 
       existingTips[t.name] = tip;
-      console.log(`"${tip}"`);
+      console.log(`  ${tag} "${t.name}" → "${tip}"`);
       generated++;
       await keepOllamaAlive();
     } catch (err) {
-      console.log(`FAIL (${err instanceof Error ? err.message : String(err)})`);
+      console.log(`  ${tag} "${t.name}" FAIL (${err instanceof Error ? err.message : String(err)})`);
       failed++;
     }
   }

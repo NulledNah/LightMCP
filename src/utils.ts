@@ -5,6 +5,16 @@ import type { ChildProcess } from "node:child_process";
 
 const isWindows = process.platform === "win32";
 
+export function checkNodeVersion(): void {
+  const [major] = process.versions.node.split(".").map(Number);
+  if (major < 20) {
+    console.warn(
+      `[WARN] LightMCP requires Node.js 20+. You are running ${process.versions.node}.\n` +
+      "       Some features may not work correctly."
+    );
+  }
+}
+
 export function killProcess(proc: ChildProcess): void {
   if (isWindows && proc.pid) {
     try {

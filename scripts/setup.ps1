@@ -86,9 +86,17 @@ if ($RegisterTask -or (-not $RegisterTask)) {
         Pop-Location
     }
 
+    # Create a .vbs launcher that runs node completely hidden (no window flash)
+    $vbsLauncher = Join-Path $lightmcpDir "start_hidden.vbs"
+    $vbsContent = @"
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """$nodeExe"" ""$distCli"" start", 0, False
+"@
+    Set-Content -Path $vbsLauncher -Value $vbsContent -Encoding ASCII
+
     $action = New-ScheduledTaskAction `
-        -Execute $nodeExe `
-        -Argument "`"$distCli`" start" `
+        -Execute "wscript.exe" `
+        -Argument "//B `"$vbsLauncher`"" `
         -WorkingDirectory $lightmcpDir
 
     $trigger  = New-ScheduledTaskTrigger -AtLogOn

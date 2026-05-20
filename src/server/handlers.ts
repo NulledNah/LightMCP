@@ -6,11 +6,11 @@
 // Uses SDK-native patterns — no manual tool tracking.
 // ============================================================
 import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getCatalogTools } from "../catalog/loader.js";
 import { buildCatalog } from "../catalog/builder.js";
 import { ensureOllamaReady } from "../ollama/manager.js";
 import { selectTools } from "../ollama/client.js";
-import { getMcpServer } from "./mcp_server.js";
 import { callTool } from "./proxy.js";
 import { qualifyToolName } from "../types.js";
 import type { ToolEntry } from "../types.js";
@@ -34,21 +34,6 @@ export const GetToolsInputSchema = z.object({
 
 export type GetToolsInput = z.infer<typeof GetToolsInputSchema>;
 
-let _registeredTools: RegisteredTool[] = [];
-let _registrationLock: Promise<void> = Promise.resolve();
-
-async function withRegistrationLock(fn: () => Promise<void>): Promise<void> {
-  const prev = _registrationLock;
-  let release: () => void;
-  _registrationLock = new Promise<void>((r) => { release = r; });
-  await prev;
-  try {
-    await fn();
-  } finally {
-    release!();
-  }
-}
-
 const INJECTION_PATTERNS = [
   /system:\s*/gi,
   /<\|im_start\|>/gi,
@@ -66,9 +51,43 @@ function containsInjection(text: string): boolean {
   return INJECTION_PATTERNS.some((p) => p.test(text));
 }
 
-export async function handleGetTools(input: GetToolsInput): Promise<{
-  content: { type: "text"; text: string }[];
-}> {
+function buildToolListResult(
+  task: string,
+  validEntries: ToolEntry[],
+  catalogLength: number
+): Record<string, unknown> {
+  return {
+    task,
+    selected: validEntries.length,
+    total: catalogLength,
+    tools: validEntries.map((t) => {
+      const qualifiedName = qualifyToolName(t.serverKey, t.name);
+      const props = (t.inputSchema as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
+      const argNames = props ? Object.keys(props) : [];
+      const exampleArgs = argNames.length > 0
+        ? "--" + argNames.map(k => `${k} "<value>"`).join(" --")
+        : "";
+      return {
+        name: qualifiedName,
+        originalName: t.name,
+        serverKey: t.serverKey,
+        transport: t.serverTransport,
+        description: t.shortDesc || t.description?.slice(0, 100),
+        inputSchema: t.inputSchema,
+        usage: `lightmcp call ${qualifiedName} ${exampleArgs}`.trim(),
+        tip: t.tip || undefined,
+      };
+    }),
+  };
+}
+
+interface ToolSelection {
+  task: string;
+  validEntries: ToolEntry[];
+  catalog: ToolEntry[];
+}
+
+async function resolveToolSelection(input: GetToolsInput): Promise<ToolSelection | { content: { type: "text"; text: string }[] }> {
   const { task, hints = [] } = input;
 
   if (containsInjection(task) || hints.some((h: string) => containsInjection(h))) {
@@ -113,72 +132,98 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
     console.warn(`  [WARN] Model hallucinated ${invalid.length} non-existent tools: ${invalid.join(", ")}`);
   }
 
-  await withRegistrationLock(async () => {
-    const mcpServer = getMcpServer();
+  return { task, validEntries, catalog };
+}
 
-    for (const reg of _registeredTools) {
-      try { reg.remove(); } catch { /* ignore */ }
+function registerSelectedTools(
+  validEntries: ToolEntry[],
+  mcpServer: McpServer,
+  registeredTools: RegisteredTool[]
+): void {
+  for (const reg of registeredTools.splice(0)) {
+    try { reg.remove(); } catch { /* ignore */ }
+  }
+
+  for (const entry of validEntries) {
+    const serverKey = entry.serverKey;
+    const toolName = entry.name;
+    const qualifiedName = qualifyToolName(serverKey, toolName);
+
+    try {
+      const registered = mcpServer.registerTool(
+        qualifiedName,
+        {
+          description: entry.description || `Tool from ${serverKey}`,
+          inputSchema: z.record(z.any()),
+          _meta: { serverKey, toolName, transport: entry.serverTransport },
+        },
+        async (args: any) => {
+          const result = await callTool(serverKey, toolName, args as Record<string, unknown> | undefined);
+          return { content: result.content, isError: result.isError };
+        }
+      );
+      registeredTools.push(registered);
+    } catch (err) {
+      console.error(`  [WARN] Failed to register tool "${qualifiedName}":`, err instanceof Error ? err.message : String(err));
     }
-    _registeredTools = [];
+  }
 
-    for (const entry of validEntries) {
-      const serverKey = entry.serverKey;
-      const toolName = entry.name;
-      const qualifiedName = qualifyToolName(serverKey, toolName);
+  mcpServer.sendToolListChanged();
 
-      try {
-        const registered = mcpServer.registerTool(
-          qualifiedName,
-          {
-            description: entry.description || `Tool from ${serverKey}`,
-            _meta: { serverKey, toolName, transport: entry.serverTransport },
-          },
-          async (args) => {
-            const result = await callTool(serverKey, toolName, args as Record<string, unknown> | undefined);
-            return { content: result.content, isError: result.isError };
-          }
-        );
-        _registeredTools.push(registered);
-      } catch (err) {
-        console.error(`  [WARN] Failed to register tool "${qualifiedName}":`, err instanceof Error ? err.message : String(err));
-      }
-    }
+  if (validEntries.length > 0) {
+    console.log(`  [REG] Registered ${validEntries.length} tool(s) for agent use`);
+  }
+}
 
-    // Notify all connected clients that the tool list changed
-    mcpServer.sendToolListChanged();
+let _registeredTools: RegisteredTool[] = [];
+let _registrationLock: Promise<void> = Promise.resolve();
 
-    if (validEntries.length > 0) {
-      console.log(`  [REG] Registered ${validEntries.length} tool(s) for agent use`);
-    }
+async function withRegistrationLock(fn: () => void): Promise<void> {
+  const prev = _registrationLock;
+  let release: () => void;
+  _registrationLock = new Promise<void>((r) => { release = r; });
+  await prev;
+  try {
+    fn();
+  } finally {
+    release!();
+  }
+}
+
+export async function handleGetTools(input: GetToolsInput): Promise<{
+  content: { type: "text"; text: string }[];
+}> {
+  const selection = await resolveToolSelection(input);
+  if ("content" in selection) return selection;
+
+  const { getMcpServer } = await import("./mcp_server.js");
+
+  await withRegistrationLock(() => {
+    registerSelectedTools(selection.validEntries, getMcpServer(), _registeredTools);
   }).catch((err) => {
     console.error("Failed to register tools on McpServer:", err);
   });
 
-  const result = {
-    task,
-    selected: validEntries.length,
-    total: catalog.length,
-    tools: validEntries.map((t) => {
-      const qualifiedName = qualifyToolName(t.serverKey, t.name);
-      const props = (t.inputSchema as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
-      const argNames = props ? Object.keys(props) : [];
-      const exampleArgs = argNames.length > 0
-        ? "--" + argNames.map(k => `${k} "<value>"`).join(" --")
-        : "";
-      return {
-        name: qualifiedName,
-        originalName: t.name,
-        serverKey: t.serverKey,
-        transport: t.serverTransport,
-        description: t.shortDesc || t.description?.slice(0, 100),
-        inputSchema: t.inputSchema,
-        usage: `lightmcp call ${qualifiedName} ${exampleArgs}`.trim(),
-        tip: t.tip || undefined,
-      };
-    }),
-  };
+  const result = buildToolListResult(selection.task, selection.validEntries, selection.catalog.length);
+  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..."`);
 
-  console.log(`  [OK] Selected ${validEntries.length}/${catalog.length} tools for: "${(task ?? "").slice(0, 60)}..."`);
+  return {
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+  };
+}
+
+export async function handleGetToolsForSession(
+  input: GetToolsInput,
+  mcpServer: McpServer,
+  registeredTools: RegisteredTool[]
+): Promise<{ content: { type: "text"; text: string }[] }> {
+  const selection = await resolveToolSelection(input);
+  if ("content" in selection) return selection;
+
+  registerSelectedTools(selection.validEntries, mcpServer, registeredTools);
+
+  const result = buildToolListResult(selection.task, selection.validEntries, selection.catalog.length);
+  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..."`);
 
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
