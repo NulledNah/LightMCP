@@ -189,11 +189,20 @@ export class McpServerManager {
   }
 }
 
-export const serverManager = new McpServerManager();
+let _serverManager: McpServerManager | null = null;
 
-export const getMcpServer = () => serverManager.getServer();
-export const getApp = () => serverManager.getApp();
-export const createMcpServer = (mode: ServerStartMode) => serverManager.create(mode);
-export const stopServer = () => serverManager.stop();
-export const startServer = (mode?: ServerStartMode) => serverManager.start(mode);
-export const resetServer = () => serverManager.reset();
+export function getServerManager(): McpServerManager {
+  if (!_serverManager) _serverManager = new McpServerManager();
+  return _serverManager;
+}
+
+export function setServerManager(manager: McpServerManager): void {
+  _serverManager = manager;
+}
+
+export const getMcpServer = () => getServerManager().getServer();
+export const getApp = () => getServerManager().getApp();
+export const createMcpServer = (mode: ServerStartMode) => getServerManager().create(mode);
+export const stopServer = () => getServerManager().stop();
+export const startServer = (mode?: ServerStartMode) => getServerManager().start(mode);
+export const resetServer = () => getServerManager().reset();
