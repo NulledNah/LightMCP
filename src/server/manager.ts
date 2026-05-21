@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, invalidateConfig } from "../config.js";
 import type { MCPServerConfig, LightMCPConfig } from "../types.js";
 import type { DetectedAgent } from "../setup/scanner.js";
@@ -28,7 +29,7 @@ async function writeConfig(cfg: LightMCPConfig | Record<string, unknown>): Promi
   invalidateConfig();
 }
 
-function resolveConfigPath(): string {
+export function resolveConfigPath(): string {
   // Walk up to find lightmcp_config.json
   let dir = process.cwd();
   for (let i = 0; i < 5; i++) {
@@ -299,19 +300,26 @@ export async function enableServer(name: string): Promise<string> {
   return `[OK] Server "${name}" enabled.`;
 }
 
-/** Full uninstall: restore all agents, clean up files. */
+/** Full uninstall: restore all agents, clean up all artifacts. */
 export async function uninstallAll(): Promise<string[]> {
   const messages: string[] = [];
+  const { rm } = await import("node:fs/promises");
 
-  // 1. Restore all agents from backups
+  // Resolve LightMCP root directory for VBS launcher cleanup
+  const __modDir = path.dirname(fileURLToPath(import.meta.url));
+  const lightmcpRoot = path.resolve(__modDir, "..", "..");
+
+  // 1. Restore all agents from backups and clean up artifacts per agent
   try {
     const agents = await detectAgents();
     for (const agent of agents) {
-      const bp = path.join(path.dirname(agent.configPath), "lightmcp_servers.json");
+      const configDir = path.dirname(agent.configPath);
+      const bp = path.join(configDir, "lightmcp_servers.json");
+
       if (existsSync(bp)) {
+        // Restore agent config from backup
         try {
           const backup = JSON.parse(readFileSync(bp, "utf-8"));
-          // Filter out servers marked as _removed (explicitly deleted by user)
           if (backup.mcpServers) {
             for (const key of Object.keys(backup.mcpServers)) {
               if (backup.mcpServers[key]?._removed) {
@@ -324,8 +332,11 @@ export async function uninstallAll(): Promise<string[]> {
         } catch {
           console.warn(`  [WARN] Failed to restore ${agent.name} from backup`);
         }
+
+        // Delete the backup file now that restoration is complete
+        try { await rm(bp); } catch { /* skip */ }
       } else {
-        // Remove only lightmcp entry
+        // No backup — just remove the lightmcp entry from agent config
         if (agent.configExists && agent.hasLightMCP) {
           try {
             const current = JSON.parse(readFileSync(agent.configPath, "utf-8"));
@@ -339,11 +350,34 @@ export async function uninstallAll(): Promise<string[]> {
           }
         }
       }
+
+      // Clean up stale .backup file (from invalid JSON during setup)
+      const backupFile = agent.configPath + ".backup";
+      if (existsSync(backupFile)) {
+        try { await rm(backupFile); } catch { /* skip */ }
+      }
+
+      // Clean up stale .tmp file (from interrupted atomic writes)
+      const tmpFile = agent.configPath + ".tmp";
+      if (existsSync(tmpFile)) {
+        try { await rm(tmpFile); } catch { /* skip */ }
+      }
+    }
+
+    // Clean up standalone Antigravity backup that may exist outside detected agents
+    const standaloneBackup = path.join(os.homedir(), ".gemini", "antigravity", "lightmcp_servers.json");
+    if (existsSync(standaloneBackup)) {
+      try { await rm(standaloneBackup); } catch { /* skip */ }
+    }
+
+    // Clean up home-dir backup (Claude Code config lives in ~/.claude.json, backup is ~/lightmcp_servers.json)
+    const homeBackup = path.join(os.homedir(), "lightmcp_servers.json");
+    if (existsSync(homeBackup)) {
+      try { await rm(homeBackup); } catch { /* skip */ }
     }
   } catch { /* skip — agent detection failed, uninstall continues */ }
 
   // 2. Clean up generated files
-  const { rm } = await import("node:fs/promises");
   const cleanupFiles = ["tool_catalog.json", "tool_tips.json"];
   for (const f of cleanupFiles) {
     const fp = path.resolve(process.cwd(), f);
@@ -352,11 +386,55 @@ export async function uninstallAll(): Promise<string[]> {
     }
   }
 
-  // 3. Stop Ollama if managed
+  // 3. Clean up residual lightmcp_config.json.tmp and .backup
+  const configPath = resolveConfigPath();
+  const configTmp = configPath + ".tmp";
+  if (existsSync(configTmp)) {
+    try { await rm(configTmp); } catch { /* skip */ }
+  }
+  const configBackup = configPath + ".backup";
+  if (existsSync(configBackup)) {
+    try { await rm(configBackup); } catch { /* skip */ }
+  }
+
+  // 4. Stop Ollama if managed
   try {
     const { stopOllama } = await import("../ollama/manager.js");
     await stopOllama();
   } catch { /* skip */ }
+
+  // 5. Platform-specific cleanup: Windows Task Scheduler, VBS launcher, Linux systemd service
+  if (process.platform === "win32") {
+    try {
+      const { execSync } = await import("node:child_process");
+      try {
+        execSync(
+          `powershell -Command "Unregister-ScheduledTask -TaskName 'LightMCP_AutoStart' -Confirm:$false -ErrorAction SilentlyContinue"`,
+          { stdio: "pipe", timeout: 10000 },
+        );
+        messages.push("[OK] Removed Windows startup task");
+      } catch { /* task may not exist or we lack admin rights — non-fatal */ }
+
+      // Remove the VBS launcher used by the scheduled task
+      const vbsPath = path.join(lightmcpRoot, "start_hidden.vbs");
+      if (existsSync(vbsPath)) {
+        try { await rm(vbsPath); } catch { /* skip */ }
+      }
+    } catch { /* skip */ }
+  } else {
+    try {
+      const { execSync } = await import("node:child_process");
+      const serviceFile = path.join(os.homedir(), ".config", "systemd", "user", "lightmcp.service");
+      try {
+        execSync("systemctl --user disable lightmcp.service 2>/dev/null || true", { stdio: "pipe" });
+        execSync("systemctl --user daemon-reload 2>/dev/null || true", { stdio: "pipe" });
+        if (existsSync(serviceFile)) {
+          await rm(serviceFile);
+        }
+        messages.push("[OK] Removed Linux systemd service");
+      } catch { /* non-fatal */ }
+    } catch { /* skip */ }
+  }
 
   messages.push("[INFO] LightMCP uninstalled. Config file preserved for reinstall.");
   return messages;

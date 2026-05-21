@@ -36,6 +36,10 @@ vi.mock('node:fs/promises', () => ({
   rm: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn(),
+}));
+
 import { loadConfig } from '../../src/config.js';
 import { detectAgents } from '../../src/setup/scanner.js';
 import { writeFile } from 'node:fs/promises';

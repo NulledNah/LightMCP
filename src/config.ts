@@ -69,7 +69,16 @@ export async function loadConfig(): Promise<LightMCPConfig> {
 async function doLoadConfig(): Promise<LightMCPConfig> {
   try {
     const configPath = resolveConfigPath();
-    const raw = await readFile(configPath, "utf-8");
+    let raw: string;
+    try {
+      raw = await readFile(configPath, "utf-8");
+    } catch (err: any) {
+      if (err?.code === "ENOENT") {
+        _config = LightMCPConfigSchema.parse({ server: {}, ollama: {}, catalog: {} });
+        return _config;
+      }
+      throw err;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);

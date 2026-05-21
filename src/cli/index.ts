@@ -149,6 +149,26 @@ program
     await uninstallCommand();
   });
 
+// ── lightmcp generate-uninstall-script ──────────────────────
+program
+  .command("generate-uninstall-script")
+  .description("Regenerate the standalone uninstall script (~/.lightmcp/uninstall.cjs)")
+  .action(async () => {
+    const { generateUninstallScript } = await import("../setup/uninstall_script.js");
+    const { detectAgents } = await import("../setup/scanner.js");
+    const { resolveConfigPath } = await import("../server/manager.js");
+    const { fileURLToPath } = await import("node:url");
+
+    const __modDir = path.dirname(fileURLToPath(import.meta.url));
+    const agents = detectAgents();
+    const cfgPath = resolveConfigPath();
+    const lmRoot = path.resolve(__modDir, "..", "..");
+
+    const scriptPath = generateUninstallScript(agents, cfgPath, lmRoot);
+    console.log(`\n[OK] Uninstall script regenerated: ${scriptPath}`);
+    console.log("  To uninstall: node ~/.lightmcp/uninstall.cjs\n");
+  });
+
 // ── Default: treat unknown args as "call <tool> [args...]" ─
 program.action(async (...args: (string | unknown)[]) => {
   const { defaultAction } = await import("./commands/default_handler.js");
