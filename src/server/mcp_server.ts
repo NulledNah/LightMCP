@@ -141,17 +141,33 @@ export class McpServerManager {
     const shutdown = async (signal: string) => {
       if (this._idleInterval) clearInterval(this._idleInterval);
       console.log(`\n${signal} received — shutting down…`);
-      const { stopOllama } = await import("../ollama/manager.js");
-      const { stopCatalogWatcher } = await import("../catalog/watcher.js");
-      const { closeServerPool } = await import("./proxy.js");
-      await Promise.all([stopOllama(), stopCatalogWatcher(), closeServerPool()]);
-      await this.stop();
+      try {
+        const { stopOllama } = await import("../ollama/manager.js");
+        const { stopCatalogWatcher } = await import("../catalog/watcher.js");
+        const { closeServerPool } = await import("./proxy.js");
+        const results = await Promise.allSettled([stopOllama(), stopCatalogWatcher(), closeServerPool()]);
+        for (const result of results) {
+          if (result.status === "rejected" && process.env.DEBUG === "true") {
+            console.error("[DEBUG] Cleanup step failed:", result.reason);
+          }
+        }
+        await this.stop();
+      } catch (err) {
+        if (process.env.DEBUG === "true") console.error("[DEBUG] Shutdown error:", err);
+      }
       console.log("[INFO] LightMCP stopped");
       process.exit(0);
     };
 
-    process.on("SIGINT", () => { shutdown("SIGINT").catch(() => {}); });
-    process.on("SIGTERM", () => { shutdown("SIGTERM").catch(() => {}); });
+    const handleSignal = (signal: string) => {
+      shutdown(signal).catch((err) => {
+        if (process.env.DEBUG === "true") console.error(`[DEBUG] ${signal} shutdown failed:`, err);
+        process.exit(1);
+      });
+    };
+
+    process.on("SIGINT", () => handleSignal("SIGINT"));
+    process.on("SIGTERM", () => handleSignal("SIGTERM"));
 
     if (idleTimeoutSeconds > 0) {
       this._idleInterval = setInterval(() => {
