@@ -156,12 +156,12 @@ program
   .action(async () => {
     const { generateUninstallScript } = await import("../setup/uninstall_script.js");
     const { detectAgents } = await import("../setup/scanner.js");
-    const { resolveConfigPath } = await import("../server/manager.js");
+    const { resolveConfigFilePath } = await import("../server/manager.js");
     const { fileURLToPath } = await import("node:url");
 
     const __modDir = path.dirname(fileURLToPath(import.meta.url));
     const agents = detectAgents();
-    const cfgPath = resolveConfigPath();
+    const cfgPath = resolveConfigFilePath();
     const lmRoot = path.resolve(__modDir, "..", "..");
 
     const scriptPath = generateUninstallScript(agents, cfgPath, lmRoot);

@@ -15,6 +15,7 @@ import type {
   ToolEntry,
   CatalogServer,
 } from "../types.js";
+import { MCP_PROTOCOL_VERSION } from "../types.js";
 
 /** Returns a filtered copy of process.env without dangerous keys
  *  that could be exploited via mcpServers config env overrides.
@@ -160,7 +161,7 @@ async function queryToolsViaStdio(
       id: 1,
       method: "initialize",
       params: {
-        protocolVersion: "2024-11-05",
+        protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: {},
         clientInfo: { name: "lightmcp-builder", version },
       },
@@ -206,7 +207,7 @@ async function queryToolsViaHttp(
         id: 1,
         method: "initialize",
         params: {
-          protocolVersion: "2024-11-05",
+          protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: { name: "lightmcp-builder", version },
         },
@@ -319,6 +320,19 @@ export async function buildCatalog(opts: {
   const toolTips = await loadToolTips();
   const seenEndpoints = new Set<string>();
 
+  interface ServerQuery {
+    key: string;
+    transport: "stdio" | "http";
+    isDisabled: boolean;
+  }
+
+  interface PendingQuery {
+    info: ServerQuery;
+    promise: Promise<ToolsDef[]>;
+  }
+
+  const queries: PendingQuery[] = [];
+
   for (const [key, serverCfg] of Object.entries(mcpServers)) {
     if (key === "lightmcp") {
       console.log(`  [SKIP] ${key} - skipped (prevent self-loop)`);
@@ -343,39 +357,52 @@ export async function buildCatalog(opts: {
     const transport: "stdio" | "http" = serverCfg.serverUrl ? "http" : "stdio";
     console.log(`  [INFO] ${key} [${transport}]${isDisabled ? " (disabled)" : ""}...`);
 
-    let rawTools: ToolsDef[] = [];
-
     if (transport === "http") {
-      rawTools = await queryToolsViaHttp(key, serverCfg);
+      queries.push({ info: { key, transport, isDisabled }, promise: queryToolsViaHttp(key, serverCfg) });
     } else if (serverCfg.command) {
-      rawTools = await queryToolsViaStdio(key, serverCfg);
+      queries.push({ info: { key, transport, isDisabled }, promise: queryToolsViaStdio(key, serverCfg) });
     } else {
       console.warn(`  [WARN] ${key}: no command or serverUrl, skipping`);
+      servers.push({
+        key,
+        transport,
+        disabled: isDisabled,
+        toolCount: 0,
+      });
     }
+  }
 
-    let added = 0;
+  const results = await Promise.allSettled(queries.map((q) => q.promise));
+
+  for (let i = 0; i < results.length; i++) {
+    const { info } = queries[i];
+    const result = results[i];
+    const rawTools: ToolsDef[] = result.status === "fulfilled" ? result.value : [];
 
     for (const t of rawTools) {
       tools.push({
         name: t.name,
-        serverKey: key,
-        serverTransport: transport,
+        serverKey: info.key,
+        serverTransport: info.transport,
         description: t.description ?? "",
         inputSchema: t.inputSchema ?? {},
         shortDesc: shortDesc(t.description),
         tip: toolTips[t.name],
       });
-      added++;
     }
 
     servers.push({
-      key,
-      transport,
-      disabled: isDisabled,
-      toolCount: added,
+      key: info.key,
+      transport: info.transport,
+      disabled: info.isDisabled,
+      toolCount: rawTools.length,
     });
 
-    console.log(`     [OK] ${added} tools collected`);
+    if (result.status === "rejected") {
+      console.warn(`     [WARN] ${info.key}: query failed — ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+    } else {
+      console.log(`     [OK] ${rawTools.length} tools collected`);
+    }
   }
 
   const catalog: ToolCatalog = {

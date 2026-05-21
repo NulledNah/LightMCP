@@ -320,11 +320,11 @@ Tip (max 100 chars):`;
 
   // 7. Generate standalone uninstall script
   const { generateUninstallScript } = await import("../../setup/uninstall_script.js");
-  const { resolveConfigPath } = await import("../../server/manager.js");
+  const { resolveConfigFilePath } = await import("../../server/manager.js");
 
   // Re-detect agents to capture post-configuration state
   const allAgents = detectAgents();
-  const cfgPath = resolveConfigPath();
+  const cfgPath = resolveConfigFilePath();
   const lmRoot = path.resolve(__dirname, "../../../");
 
   const scriptPath = generateUninstallScript(allAgents, cfgPath, lmRoot);
