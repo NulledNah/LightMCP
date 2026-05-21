@@ -53,34 +53,30 @@ export function buildToolSelectionPrompt(
     }
   }
 
-  const systemPrompt = `You are a precise semantic tool router for MCP (Model Context Protocol) servers.
-
-Your job: Given a user's task description, analyze it carefully and select the most relevant tools from the available catalog.
+  const systemPrompt = `You are a precise semantic tool router for MCP (Model Context Protocol) servers. Your primary selection signal is the TIP attached to each tool — the tip describes the exact situation when that tool should be used.
 
 REASONING FRAMEWORK:
-1. TASK ANALYSIS — What is the user trying to accomplish? Which domain? (PCB/electronics, 3D CAD, web/browser, code analysis, etc.)
-2. CAPABILITY MAPPING — What operations are needed? (searching, creating, listing, modifying, debugging, navigating, etc.)
-3. TOOL SELECTION — Which available tools best provide those capabilities? Match tool descriptions and parameter hints to the required operations.
+1. TASK ANALYSIS — What is the user trying to accomplish?
+2. TIP SCANNING — First scan ALL tool tips. Find tips whose situation matches the user's task. A tip saying "When you need to create 3D geometry" matches "create a cube" even if the tool name doesn't contain "cube".
+3. TOOL SELECTION — Select tools whose TIP (or description, if no tip) matches the task's intent. Tool names may use technical jargon — IGNORE name mismatch if the tip/description describes the user's need.
+4. DOMAIN CLASSIFICATION — Classify which server domain(s) are relevant before picking individual tools.
+
+DOMAIN-TO-TERM MAPPINGS (use these to connect user words to domains):
+- 3D / CAD / modeling: cube, sphere, cylinder, mesh, solid, surface, extrude, revolve, boolean, sculpt, animate, rig, bone, texture, render, STL, STEP, OBJ, scene, model, geometry, primitive, polygon, vertex, edge, face
+- PCB / electronics / circuit: pcb, board, schematic, footprint, trace, route, via, pad, silkscreen, layer, drill, component, KiCad, Eagle, Altium, Gerber, netlist, BOM, placement
+- Web / browser: page, site, URL, click, navigate, form, screenshot, DOM, HTML, CSS, JavaScript, Puppeteer, Playwright, scrape
+- Code / development: code, function, class, module, debug, refactor, test, lint, build, deploy, git, API, endpoint
 
 SELECTION GUIDELINES:
-- The user's task may be written in any language (Italian, French, German, Spanish, etc.). Mentally translate it to English first, then match against the English tool names and descriptions below.
-- Return tools that are directly necessary to accomplish the task. Exclude tools from irrelevant domains.
-- For simple tasks (single operation), 1-3 tools are usually enough.
-- For complex multi-step workflows (e.g. search → create → verify), include the complementary tools needed.
-- Cross-domain contamination is forbidden: do NOT select browser/devtools for a PCB task, do NOT select CAD tools for a web task.
-- Maximum 8 tools, even for the most complex tasks. If in doubt, prefer precision over quantity.
-- If no tool from the relevant domain(s) can help with the task, return empty. But when tools exist in the correct domain, always select the best-fitting ones — even if the match is imperfect.
+- The user's task may be in any language. Mentally translate it to English first.
+- Tips are GOLD — a tip that describes the user's situation means SELECT THAT TOOL, even if the tool name looks unrelated.
+- Cross-domain contamination is forbidden. Do NOT select browser/devtools for a 3D/PCB task.
+- Maximum 8 tools. For simple tasks, 1-3 tools are usually enough.
+- If no tool from the relevant domain matches, return empty. But when tools exist in the correct domain, ALWAYS select the best-fitting ones — the match may be imperfect at the surface level (tool name) but correct at the semantic level (tip/description).
 
 RESPONSE FORMAT (STRICT):
 Respond with ONLY a valid JSON object — no markdown fences, no extra text.
-The JSON must have exactly two properties:
-  "reasoning": a concise string explaining your step-by-step selection logic
-  "tools": an array of exact tool names from the provided list
-
-Examples:
-{"reasoning": "Task asks to create a KiCad footprint. Domain: PCB. Capability: creating. One tool matches.", "tools": ["create_footprint"]}
-{"reasoning": "Task requires searching for existing footprints, creating one, then verifying. Three complementary PCB tools needed.", "tools": ["search_footprints", "create_footprint", "get_footprint_info"]}
-{"reasoning": "Task is about cooking recipes. No tools in the available catalog match this domain.", "tools": []}`;
+{"reasoning": "...", "tools": ["EXACT_TOOL_NAME", ...]}`;
 
   const hintsSection =
     hints.length > 0
@@ -95,24 +91,24 @@ Examples:
       const toolLines = tools
         .map((t) => {
           const paramStr = t.p ? ` ${t.p}` : "";
-          const tipStr = t.t ? ` [tip: ${t.t}]` : "";
-          return `  - "${t.n}": ${t.d}${paramStr}${tipStr}`;
+          const tipStr = t.t ? `  TIP: ${t.t}\n    → ${t.d}${paramStr}` : `  → ${t.d}${paramStr}`;
+          return `  - "${t.n}": ${tipStr}`;
         })
         .join("\n");
       return `=== ${server} [${domain}] ===\n${toolLines}`;
     })
     .join("\n\n");
 
-  const userPrompt = `AVAILABLE TOOLS (grouped by server domain — select TOOL NAMES only):
+  const userPrompt = `AVAILABLE TOOLS (with tips showing WHEN to use each tool):
 ${groupedBlock}
 
-USER TASK TO ACCOMPLISH:
+USER TASK:
 "${task}"${hintsSection}
 
 INSTRUCTIONS:
-1. Read the USER TASK carefully. Identify which server domain(s) are relevant.
-2. From the relevant servers, select only the exact tools needed to accomplish the task.
-3. Respond with ONLY the JSON object: {"reasoning": "...", "tools": ["TOOL_NAME", ...]}`;
+1. Scan ALL tool TIPs first — find tips whose situation matches the user's task.
+2. Verify the match using the tool description. Select the matched tools.
+3. Respond with ONLY: {"reasoning": "...", "tools": ["TOOL_NAME", ...]}`;
 
   return { systemPrompt, userPrompt };
 }

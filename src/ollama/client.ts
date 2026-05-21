@@ -23,6 +23,16 @@ function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   const lower = task.toLowerCase();
   const keywords = generateDomainKeywords(catalog);
 
+  // Short tasks (≤3 content words) have too few tokens for reliable
+  // keyword matching — skip pre-filter, let the LLM handle selection.
+  const contentWords = lower.split(/\s+/).filter(w => w.length >= 2);
+  if (contentWords.length <= 3) {
+    if (process.env.LIGHTMCP_VERBOSE) {
+      console.log(`\n[DEBUG] Pre-filter: short task ("${task}") — sending full catalog (${catalog.length} tools)`);
+    }
+    return catalog;
+  }
+
   // Collect matched servers
   const matched = new Set<string>();
   for (const [server, serverKeywords] of Object.entries(keywords)) {
