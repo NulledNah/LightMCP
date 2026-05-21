@@ -14,7 +14,6 @@ import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
 import { getCatalogTools } from "../catalog/loader.js";
 import { handleGetTools, GetToolsInputSchema } from "./handlers.js";
-import type { GetToolsInput } from "./handlers.js";
 import { callTool } from "./proxy.js";
 import { createHttpTransport, createStdioTransport, type TransportHandle } from "./transports.js";
 import { qualifyToolName } from "../types.js";
@@ -62,7 +61,7 @@ export class McpServerManager {
         inputSchema: GetToolsInputSchema,
       },
       async (args) => {
-        return handleGetTools(args as GetToolsInput);
+        return handleGetTools(args);
       }
     );
 
@@ -82,11 +81,11 @@ export class McpServerManager {
           qualifiedName,
           {
             description: entry.description || `Tool from ${entry.serverKey}`,
-            inputSchema: z.record(z.any()),
+            inputSchema: z.object({}).passthrough(),
             _meta: { serverKey: entry.serverKey, transport: entry.serverTransport },
           },
-          async (args: any) => {
-            const result = await callTool(entry.serverKey, entry.name, args as Record<string, unknown> | undefined);
+          async (args: Record<string, unknown>) => {
+            const result = await callTool(entry.serverKey, entry.name, args);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
         );
@@ -101,11 +100,11 @@ export class McpServerManager {
           qualifiedName,
           {
             description: tool.description || `Tool from ${tool.serverKey}`,
-            inputSchema: z.record(z.any()),
+            inputSchema: z.object({}).passthrough(),
             _meta: { serverKey: tool.serverKey, transport: tool.serverTransport },
           },
-          async (args: any) => {
-            const result = await callTool(tool.serverKey, tool.name, args as Record<string, unknown> | undefined);
+          async (args: Record<string, unknown>) => {
+            const result = await callTool(tool.serverKey, tool.name, args);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
         );
