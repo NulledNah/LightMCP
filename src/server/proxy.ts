@@ -128,8 +128,8 @@ export class ProxyPool {
       try {
         await conn.client.close();
         console.log(`  [PROXY] Closed connection to ${key}`);
-      } catch {
-        // ignore
+      } catch (err) {
+        if (process.env.DEBUG === 'true') console.error(`[DEBUG] Failed to close connection to ${key}:`, err);
       }
     }
     this._pool.clear();
@@ -141,9 +141,18 @@ export class ProxyPool {
   }
 }
 
-export const proxyPool = new ProxyPool();
+let _proxyPool: ProxyPool | null = null;
+
+export function getProxyPool(): ProxyPool {
+  if (!_proxyPool) _proxyPool = new ProxyPool();
+  return _proxyPool;
+}
+
+export function setProxyPool(pool: ProxyPool): void {
+  _proxyPool = pool;
+}
 
 export const callTool = (serverKey: string, toolName: string, args?: Record<string, unknown>) =>
-  proxyPool.callTool(serverKey, toolName, args);
+  getProxyPool().callTool(serverKey, toolName, args);
 
-export const closeServerPool = () => proxyPool.close();
+export const closeServerPool = () => getProxyPool().close();

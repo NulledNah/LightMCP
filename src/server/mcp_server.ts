@@ -14,7 +14,6 @@ import { loadConfig } from "../config.js";
 import { getVersion } from "../version.js";
 import { getCatalogTools } from "../catalog/loader.js";
 import { handleGetTools, GetToolsInputSchema } from "./handlers.js";
-import type { GetToolsInput } from "./handlers.js";
 import { callTool } from "./proxy.js";
 import { createHttpTransport, createStdioTransport, type TransportHandle } from "./transports.js";
 import { qualifyToolName } from "../types.js";
@@ -62,7 +61,7 @@ export class McpServerManager {
         inputSchema: GetToolsInputSchema,
       },
       async (args) => {
-        return handleGetTools(args as GetToolsInput);
+        return handleGetTools(args);
       }
     );
 
@@ -82,11 +81,11 @@ export class McpServerManager {
           qualifiedName,
           {
             description: entry.description || `Tool from ${entry.serverKey}`,
-            inputSchema: z.record(z.any()),
+            inputSchema: z.object({}).passthrough(),
             _meta: { serverKey: entry.serverKey, transport: entry.serverTransport },
           },
-          async (args: any) => {
-            const result = await callTool(entry.serverKey, entry.name, args as Record<string, unknown> | undefined);
+          async (args: Record<string, unknown>) => {
+            const result = await callTool(entry.serverKey, entry.name, args);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
         );
@@ -101,11 +100,11 @@ export class McpServerManager {
           qualifiedName,
           {
             description: tool.description || `Tool from ${tool.serverKey}`,
-            inputSchema: z.record(z.any()),
+            inputSchema: z.object({}).passthrough(),
             _meta: { serverKey: tool.serverKey, transport: tool.serverTransport },
           },
-          async (args: any) => {
-            const result = await callTool(tool.serverKey, tool.name, args as Record<string, unknown> | undefined);
+          async (args: Record<string, unknown>) => {
+            const result = await callTool(tool.serverKey, tool.name, args);
             return { content: result.content, isError: result.isError } as CallToolResult;
           }
         );
@@ -124,11 +123,11 @@ export class McpServerManager {
       this._idleInterval = null;
     }
     if (this.mcpServer) {
-      try { await this.mcpServer.close(); } catch { /* ignore */ }
+      try { await this.mcpServer.close(); } catch (err) { if (process.env.DEBUG === 'true') console.error('[DEBUG] mcpServer.close failed:', err); }
       this.mcpServer = null;
     }
     if (this.transportHandle) {
-      try { await this.transportHandle.stop(); } catch { /* ignore */ }
+      try { await this.transportHandle.stop(); } catch (err) { if (process.env.DEBUG === 'true') console.error('[DEBUG] transportHandle.stop failed:', err); }
       this.transportHandle = null;
     }
   }
@@ -142,17 +141,33 @@ export class McpServerManager {
     const shutdown = async (signal: string) => {
       if (this._idleInterval) clearInterval(this._idleInterval);
       console.log(`\n${signal} received — shutting down…`);
-      const { stopOllama } = await import("../ollama/manager.js");
-      const { stopCatalogWatcher } = await import("../catalog/watcher.js");
-      const { closeServerPool } = await import("./proxy.js");
-      await Promise.all([stopOllama(), stopCatalogWatcher(), closeServerPool()]);
-      await this.stop();
+      try {
+        const { stopOllama } = await import("../ollama/manager.js");
+        const { stopCatalogWatcher } = await import("../catalog/watcher.js");
+        const { closeServerPool } = await import("./proxy.js");
+        const results = await Promise.allSettled([stopOllama(), stopCatalogWatcher(), closeServerPool()]);
+        for (const result of results) {
+          if (result.status === "rejected" && process.env.DEBUG === "true") {
+            console.error("[DEBUG] Cleanup step failed:", result.reason);
+          }
+        }
+        await this.stop();
+      } catch (err) {
+        if (process.env.DEBUG === "true") console.error("[DEBUG] Shutdown error:", err);
+      }
       console.log("[INFO] LightMCP stopped");
       process.exit(0);
     };
 
-    process.on("SIGINT", () => { shutdown("SIGINT").catch(() => {}); });
-    process.on("SIGTERM", () => { shutdown("SIGTERM").catch(() => {}); });
+    const handleSignal = (signal: string) => {
+      shutdown(signal).catch((err) => {
+        if (process.env.DEBUG === "true") console.error(`[DEBUG] ${signal} shutdown failed:`, err);
+        process.exit(1);
+      });
+    };
+
+    process.on("SIGINT", () => handleSignal("SIGINT"));
+    process.on("SIGTERM", () => handleSignal("SIGTERM"));
 
     if (idleTimeoutSeconds > 0) {
       this._idleInterval = setInterval(() => {
@@ -174,11 +189,20 @@ export class McpServerManager {
   }
 }
 
-export const serverManager = new McpServerManager();
+let _serverManager: McpServerManager | null = null;
 
-export const getMcpServer = () => serverManager.getServer();
-export const getApp = () => serverManager.getApp();
-export const createMcpServer = (mode: ServerStartMode) => serverManager.create(mode);
-export const stopServer = () => serverManager.stop();
-export const startServer = (mode?: ServerStartMode) => serverManager.start(mode);
-export const resetServer = () => serverManager.reset();
+export function getServerManager(): McpServerManager {
+  if (!_serverManager) _serverManager = new McpServerManager();
+  return _serverManager;
+}
+
+export function setServerManager(manager: McpServerManager): void {
+  _serverManager = manager;
+}
+
+export const getMcpServer = () => getServerManager().getServer();
+export const getApp = () => getServerManager().getApp();
+export const createMcpServer = (mode: ServerStartMode) => getServerManager().create(mode);
+export const stopServer = () => getServerManager().stop();
+export const startServer = (mode?: ServerStartMode) => getServerManager().start(mode);
+export const resetServer = () => getServerManager().reset();
