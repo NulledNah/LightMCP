@@ -84,14 +84,11 @@ export async function selectTools(
   // If the task is in a non-English language, translate it so the
   // keyword pre-filter can match English tool names and descriptions.
   let filterTask = task;
-  const allHints = [...hints];
-  let translated: string | null = null;
   if (detectNonEnglish(task)) {
     try {
-      translated = await translateToEnglish(task, host, model);
+      const translated = await translateToEnglish(task, host, model);
       if (translated && translated !== task) {
         filterTask = translated;
-        allHints.push(`Original task (translated from non-English): "${task}"`);
         if (process.env.LIGHTMCP_VERBOSE) {
           console.log(`\n[DEBUG] Translated task: "${task}" → "${translated}"`);
         }
@@ -101,26 +98,15 @@ export async function selectTools(
     }
   }
 
-  // Pre-filter v2: Match keywords against both original and translated queries.
-  // Translated query carries English keywords; original may carry server-specific
-  // vocabulary in the original language (e.g., "posa" for KiCad in Italian).
-  let filtered = filterCatalogByTask(filterTask, catalog);
-  if (translated && translated !== task) {
-    const originalFiltered = filterCatalogByTask(task, catalog);
-    // Merge: union of servers matched by either query
-    const mergedServers = new Set<string>();
-    for (const t of filtered) mergedServers.add(t.serverKey);
-    for (const t of originalFiltered) mergedServers.add(t.serverKey);
-    if (mergedServers.size > 0) {
-      filtered = catalog.filter((t) => mergedServers.has(t.serverKey));
-      if (filtered.length === 0) filtered = catalog;
-    }
-  }
+  // Pre-filter: Match keywords against the (possibly translated) task.
+  // Only the translated query is used for keyword matching — the original
+  // non-English query would match accidental keywords and pollute domain selection.
+  const filtered = filterCatalogByTask(filterTask, catalog);
 
   const { systemPrompt, userPrompt } = buildToolSelectionPrompt(
     task,
     filtered,
-    allHints
+    hints
   );
 
   const body: OllamaChatRequest = {

@@ -81,7 +81,7 @@ export async function translateToEnglish(
   ollamaHost: string,
   model: string
 ): Promise<string> {
-  const prompt = `Translate the following task description to English. Return ONLY the English translation, nothing else:\n\n${task}`;
+  const prompt = `Translate the following task description to English LITERALLY — preserve every word, do NOT add, embellish, rephrase, or explain. Return ONLY the strict literal English translation, nothing else:\n\n${task}`;
 
   const res = await fetch(`${ollamaHost}/api/generate`, {
     method: "POST",
