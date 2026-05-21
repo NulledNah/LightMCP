@@ -3,7 +3,8 @@
 // ============================================================
 import path from "node:path";
 import os from "node:os";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, statSync, unlinkSync } from "node:fs";
+import { MCP_PROTOCOL_VERSION } from "../types.js";
 
 export function cleanTip(raw: string, toolName: string): string {
   let tip = raw;
@@ -40,6 +41,7 @@ export function safePath(inputPath: string): string {
 }
 
 const SESSION_FILE = path.join(os.tmpdir(), "lightmcp_session.json");
+const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 interface SessionData {
   sessionId: string;
@@ -50,6 +52,11 @@ interface SessionData {
 function readSession(): SessionData | null {
   try {
     if (!existsSync(SESSION_FILE)) return null;
+    const age = Date.now() - statSync(SESSION_FILE).mtimeMs;
+    if (age > SESSION_TTL_MS) {
+      try { unlinkSync(SESSION_FILE); } catch { /* stale cleanup, non-critical */ }
+      return null;
+    }
     const raw = readFileSync(SESSION_FILE, "utf-8");
     return JSON.parse(raw) as SessionData;
   } catch {
@@ -93,7 +100,7 @@ export async function mcpHandshake(url: string): Promise<string | null> {
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     body: JSON.stringify({
       jsonrpc: "2.0", id: 0, method: "initialize",
-      params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "lightmcp-cli", version: "1.0" } },
+      params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "lightmcp-cli", version: "1.0" } },
     }),
     signal: AbortSignal.timeout(10_000),
   });
@@ -117,4 +124,134 @@ export async function mcpHandshake(url: string): Promise<string | null> {
 
   writeSession({ sessionId, host, port });
   return sessionId;
+}
+
+interface CallArgs {
+  tool: string;
+  args: Record<string, unknown>;
+  file?: string;
+  output?: string;
+}
+
+/** Parse CLI arguments into a tool name and arguments object.
+ *  Handles: JSON blob, key=value, --key value, single positional arg.
+ *  Detects server prefix (e.g. "kicad search_footprints").
+ */
+export async function parseCallArgs(
+  firstArg: string,
+  rawArgs: string[],
+  opts: { file?: string; output?: string }
+): Promise<CallArgs> {
+  const { resolveMcpServers } = await import("../config.js");
+  const mcpServers = await resolveMcpServers();
+  const knownServers = Object.keys(mcpServers);
+
+  let tool = firstArg;
+  let argsStart = 0;
+
+  if (rawArgs.length > 0 && knownServers.includes(firstArg)) {
+    tool = rawArgs[0];
+    argsStart = 1;
+  }
+
+  let toolArgs: Record<string, unknown> = {};
+
+  if (opts.file) {
+    const { readFile } = await import("node:fs/promises");
+    const filePath = safePath(opts.file);
+    const raw = await readFile(filePath, "utf-8");
+    toolArgs = JSON.parse(raw);
+  } else {
+    const effectiveArgs = rawArgs.slice(argsStart);
+
+    if (effectiveArgs.length === 1) {
+      try {
+        toolArgs = JSON.parse(effectiveArgs[0]);
+      } catch {
+        toolArgs = { input: effectiveArgs[0] };
+      }
+    } else if (effectiveArgs.length > 1) {
+      for (let i = 0; i < effectiveArgs.length; i++) {
+        let key = effectiveArgs[i].replace(/^--?/, "");
+        const eqIdx = key.indexOf("=");
+        if (eqIdx >= 0) {
+          const val = key.slice(eqIdx + 1).replace(/^['"]|['"]$/g, "");
+          key = key.slice(0, eqIdx);
+          toolArgs[key] = val;
+        } else {
+          const next = effectiveArgs[i + 1];
+          if (next && !next.startsWith("-")) {
+            toolArgs[key] = next.replace(/^['"]|['"]$/g, "");
+            i++;
+          }
+        }
+      }
+    }
+  }
+
+  return { tool, args: toolArgs };
+}
+
+/** Make a tools/call request to the LightMCP server and print the result. */
+export async function callToolViaHttp(
+  tool: string,
+  toolArgs: Record<string, unknown>,
+  opts: { output?: string } = {}
+): Promise<void> {
+  const { loadConfig } = await import("../config.js");
+  const cfg = await loadConfig();
+  const url = `http://${cfg.server.host}:${cfg.server.port}/mcp`;
+
+  const sessionId = await mcpHandshake(url);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: tool, arguments: toolArgs },
+    }),
+  });
+
+  const rawBody = await res.text();
+  try {
+    const data = JSON.parse(rawBody) as {
+      error?: { code: number; message: string };
+      result?: { content?: { type: string; text?: string; data?: string; mimeType?: string }[] };
+    };
+    if (data.error) {
+      console.error(JSON.stringify(data.error));
+      process.exit(1);
+    }
+    const content = data.result?.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === "text" && block.text) {
+          process.stdout.write(block.text);
+        } else if (block.type === "image" && block.data) {
+          if (opts.output) {
+            const { writeFile } = await import("node:fs/promises");
+            const buf = Buffer.from(block.data, "base64");
+            const outputPath = safePath(opts.output);
+            await writeFile(outputPath, buf);
+            process.stdout.write(`[OK] Image saved to ${opts.output}\n`);
+          } else {
+            process.stdout.write(block.data);
+          }
+        }
+      }
+      process.stdout.write("\n");
+    } else {
+      process.stdout.write(JSON.stringify(data.result, null, 2) + "\n");
+    }
+  } catch {
+    if (rawBody) process.stdout.write(rawBody + "\n");
+    else console.error(`Tool "${tool}" returned empty response`);
+  }
 }

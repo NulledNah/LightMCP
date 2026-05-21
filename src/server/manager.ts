@@ -21,7 +21,7 @@ export type ListEntry = {
 
 async function writeConfig(cfg: LightMCPConfig | Record<string, unknown>): Promise<void> {
   const { writeFile, rename } = await import("node:fs/promises");
-  const configPath = resolveConfigPath();
+  const configPath = resolveConfigFilePath();
   // Atomic write: write to temp file, then rename (prevents partial writes)
   const tmpPath = configPath + ".tmp";
   await writeFile(tmpPath, JSON.stringify(cfg, null, 2), "utf-8");
@@ -29,7 +29,7 @@ async function writeConfig(cfg: LightMCPConfig | Record<string, unknown>): Promi
   invalidateConfig();
 }
 
-export function resolveConfigPath(): string {
+export function resolveConfigFilePath(): string {
   // Walk up to find lightmcp_config.json
   let dir = process.cwd();
   for (let i = 0; i < 5; i++) {
@@ -109,9 +109,9 @@ export async function listServers(showDisabled = false): Promise<ListEntry[]> {
             disabled: serverCfg.disabled === true,
           });
         }
-      } catch { /* skip */ }
-    }
-  } catch { /* skip */ }
+        } catch { console.warn(`  [WARN] Failed to read agent config for ${agent.name} during server listing`); }
+      }
+    } catch { console.warn("  [WARN] Agent detection failed during server listing"); }
 
   return showDisabled ? results : results.filter(r => !r.disabled);
 }
@@ -157,9 +157,9 @@ export async function addServer(
 
           messages.push(`removed from ${agent.name}`);
         }
-      } catch { /* skip */ }
+      } catch { console.warn(`  [WARN] Failed to update ${agent.name} config while adding server "${name}"`); }
     }
-  } catch { /* skip */ }
+  } catch { console.warn("  [WARN] Agent detection failed while adding server"); }
 
   // Clear _removed flag from any backup (server was explicitly re-added)
   try {
@@ -175,10 +175,10 @@ export async function addServer(
             delete backup.mcpServers[name]._removed;
             writeFileSync(bp, JSON.stringify(backup, null, 2) + "\n", "utf-8");
           }
-        } catch { /* skip */ }
+        } catch { console.warn(`  [WARN] Failed to update backup for "${name}" in ${bp}`); }
       }
     }
-  } catch { /* skip */ }
+  } catch { console.warn("  [WARN] Agent detection failed while clearing _removed flags"); }
 
   await buildCatalog();
   const agentMsg = messages.length > 0 ? ` (${messages.join(", ")})` : "";
@@ -213,10 +213,10 @@ export async function removeServer(
             }
             break;
           }
-        } catch { /* skip */ }
+        } catch { console.warn(`  [WARN] Could not read backup for ${agent.name} during server removal`); }
       }
     }
-  } catch { /* skip */ }
+  } catch { console.warn("  [WARN] Agent detection failed during server removal"); }
 
   let shouldRestore = opts.restore ?? false;
 
@@ -375,7 +375,7 @@ export async function uninstallAll(): Promise<string[]> {
     if (existsSync(homeBackup)) {
       try { await rm(homeBackup); } catch { /* skip */ }
     }
-  } catch { /* skip — agent detection failed, uninstall continues */ }
+  } catch { console.warn("  [WARN] Agent detection failed during uninstall — continuing cleanup"); }
 
   // 2. Clean up generated files
   const cleanupFiles = ["tool_catalog.json", "tool_tips.json"];
@@ -387,7 +387,7 @@ export async function uninstallAll(): Promise<string[]> {
   }
 
   // 3. Clean up residual lightmcp_config.json.tmp and .backup
-  const configPath = resolveConfigPath();
+  const configPath = resolveConfigFilePath();
   const configTmp = configPath + ".tmp";
   if (existsSync(configTmp)) {
     try { await rm(configTmp); } catch { /* skip */ }

@@ -64,7 +64,7 @@ export async function generateTipsAction(opts: { server?: string; overwrite?: bo
   const serverDomains = generateServerDomains(tools);
 
   const tipPrompt = (t: typeof tools[number]) =>
-    `Write a concise usage tip (max 100 chars) explaining WHEN to select this tool — its role in a workflow.
+    `Write a concise usage tip (max 120 chars) explaining WHEN to select this tool — its role in a workflow.
 CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
   Good: "When you need to quickly find a specific component by name in your library"
   Bad:  "When you need to find a component, use 'my_tool' to locate it"
@@ -73,7 +73,7 @@ Tool name: "${t.name}"
 Server: ${t.serverKey}${serverDomains[t.serverKey] ? ` [${serverDomains[t.serverKey]}]` : ""}
 Description: ${t.description?.slice(0, 400) ?? "No description"}
 
-Tip (max 100 chars):`;
+Tip (max 120 chars):`;
 
   let generated = 0;
   let failed = 0;
@@ -90,7 +90,7 @@ Tip (max 100 chars):`;
           model,
           stream: false,
           messages: [{ role: "user", content: tipPrompt(t) }],
-          options: { temperature: 0.1, num_predict: 128, top_k: 20, top_p: 0.9 },
+          options: { temperature: 0.1, num_predict: 200, top_k: 20, top_p: 0.9 },
         }),
         signal: AbortSignal.timeout(30_000),
       });
@@ -109,7 +109,7 @@ Tip (max 100 chars):`;
       const cleaned = cleanTip(raw, t.name);
 
       const tip = cleaned.length > 120
-        ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 60 ? s.slice(0, sp) : s; })()
+        ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 0 ? s.slice(0, sp) : s; })()
         : cleaned;
       if (!tip) {
         console.log(`  ${tag} "${t.name}" SKIP (empty response)`);

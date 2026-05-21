@@ -181,3 +181,4 @@ export const getApp = () => serverManager.getApp();
 export const createMcpServer = (mode: ServerStartMode) => serverManager.create(mode);
 export const stopServer = () => serverManager.stop();
 export const startServer = (mode?: ServerStartMode) => serverManager.start(mode);
+export const resetServer = () => serverManager.reset();

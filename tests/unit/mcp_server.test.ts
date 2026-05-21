@@ -89,6 +89,11 @@ describe('mcp_server.ts', () => {
   });
 
   describe('getMcpServer (before creation)', () => {
+    beforeAll(async () => {
+      const { resetServer } = await import('../../src/server/mcp_server.js');
+      resetServer();
+    });
+
     it('should throw if called before creation', async () => {
       const { getMcpServer } = await import('../../src/server/mcp_server.js');
 

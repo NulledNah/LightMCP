@@ -81,6 +81,9 @@ export interface MCPConfig {
 }
 
 /** Qualify a tool name with its server key to prevent collisions */
+/** Unified MCP protocol version used across all transports */
+export const MCP_PROTOCOL_VERSION = "2025-03-26";
+
 export function qualifyToolName(serverKey: string, toolName: string): string {
   return `${serverKey}_${toolName}`;
 }
