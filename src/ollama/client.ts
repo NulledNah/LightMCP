@@ -7,7 +7,7 @@ import { loadConfig } from "../config.js";
 import type { ToolEntry } from "../types.js";
 import { buildToolSelectionPrompt } from "../prompts/tool_selector.js";
 import { generateDomainKeywords } from "./keywords.js";
-import { detectNonEnglish, translateToEnglish } from "./translator.js";
+import { detectNonEnglish, detectLanguage, translateToEnglish } from "./translator.js";
 
 // Expected response: a JSON array of tool name strings
 const SelectionSchema = z.array(z.string().min(1));
@@ -209,7 +209,8 @@ export async function selectTools(
   let filterTask = task;
   if (detectNonEnglish(task)) {
     try {
-      const translated = await translateToEnglish(task, host, model);
+      const langCode = detectLanguage(task) ?? "ita_Latn";
+      const translated = await translateToEnglish(task, langCode);
       if (translated && translated !== task) {
         filterTask = translated;
         if (process.env.LIGHTMCP_VERBOSE) {

@@ -1,8 +1,9 @@
 // ============================================================
 // LightMCP — Query Translator
 // Detects non-English queries and translates them to English
-// via Ollama so the keyword pre-filter works reliably.
+// via an in-process NMT model (Xenova NLLB-200).
 // ============================================================
+import type { TranslationPipeline } from "@xenova/transformers";
 
 /** Common function words for non-English language detection.
  *  If a query contains >= THRESHOLD matches, it's considered non-English. */
@@ -62,57 +63,85 @@ const NON_ENGLISH_WORDS: Record<string, string[]> = {
   ],
 };
 
+/** Maps ISO 639-1 language keys to NLLB-200 source language codes. */
+const NLLB_LANG_CODES: Record<string, string> = {
+  it: "ita_Latn",
+  es: "spa_Latn",
+  fr: "fra_Latn",
+  de: "deu_Latn",
+  pt: "por_Latn",
+};
+
 const DETECTION_THRESHOLD = 2;
 
 /** Heuristic: count non-English function words. Returns true if likely non-English. */
 export function detectNonEnglish(task: string): boolean {
+  return detectLanguage(task) !== null;
+}
+
+/** Returns the NLLB-200 language code of the detected language, or null if English. */
+export function detectLanguage(task: string): string | null {
   const words = task.toLowerCase().split(/\s+/);
-  let nonEnCount = 0;
+  const scores: Record<string, number> = {};
 
   for (const w of words) {
-    for (const langWords of Object.values(NON_ENGLISH_WORDS)) {
+    for (const [langKey, langWords] of Object.entries(NON_ENGLISH_WORDS)) {
       if ((langWords as string[]).includes(w)) {
-        nonEnCount++;
-        if (nonEnCount >= DETECTION_THRESHOLD) return true;
-        break; // count each word once across all languages
+        scores[langKey] = (scores[langKey] ?? 0) + 1;
+        if (scores[langKey] >= DETECTION_THRESHOLD) {
+          return NLLB_LANG_CODES[langKey] ?? null;
+        }
+        break;
       }
     }
   }
 
-  return false;
+  return null;
 }
 
-/** Translate a short task description to English via Ollama.
- *  Uses /api/generate with a minimal prompt to keep latency low. */
+// ── In-process NMT via Xenova Transformers ──────────────────
+
+let _translatorPipeline: TranslationPipeline | null = null;
+let _pipelineLoading: Promise<TranslationPipeline> | null = null;
+
+async function getPipeline(): Promise<TranslationPipeline> {
+  if (_translatorPipeline) return _translatorPipeline;
+  if (_pipelineLoading) return _pipelineLoading;
+
+  _pipelineLoading = (async () => {
+    const { pipeline } = await import("@xenova/transformers");
+    _translatorPipeline = await pipeline(
+      "translation",
+      "Xenova/nllb-200-distilled-600M",
+      { quantized: true }
+    );
+    console.log("[INFO] NMT translator pipeline loaded (Xenova/nllb-200-distilled-600M)");
+    return _translatorPipeline;
+  })();
+
+  return _pipelineLoading;
+}
+
+/** Translate a short task description to English via in-process NMT.
+ *  Uses the Xenova/nllb-200-distilled-600M quantized model (~200 MB RAM). */
 export async function translateToEnglish(
   task: string,
-  ollamaHost: string,
-  model: string
+  sourceLangCode: string = "ita_Latn"
 ): Promise<string> {
-  const prompt = `Translate the following task description to English LITERALLY — preserve every word, do NOT add, embellish, rephrase, or explain. Return ONLY the strict literal English translation, nothing else:\n\n${task}`;
+  const translator = await getPipeline();
 
-  const res = await fetch(`${ollamaHost}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      options: { temperature: 0, num_predict: 128 },
-    }),
-    signal: AbortSignal.timeout(8_000),
+  const output = await (translator as any)(task, {
+    src_lang: sourceLangCode,
+    tgt_lang: "eng_Latn",
   });
 
-  if (!res.ok) {
-    throw new Error(`Ollama HTTP ${res.status}`);
+  if (!output || (Array.isArray(output) && output.length === 0)) {
+    throw new Error("Translation inference failed");
   }
 
-  const data = (await res.json()) as { response: string };
-  const translation = data.response?.trim();
+  const translation = Array.isArray(output)
+    ? (output[0] as any).translation_text
+    : (output as any).translation_text;
 
-  if (!translation) {
-    throw new Error("Empty translation response");
-  }
-
-  return translation;
+  return (translation ?? "").trim();
 }
