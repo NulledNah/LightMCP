@@ -135,7 +135,18 @@ Tip (max 120 chars):`;
 
   console.log(`\n[OK] ${generated} tip(s) generated, ${failed} failed`);
   console.log(`[OK] Saved to ${tipsPath}`);
-  console.log("[INFO] Run 'lightmcp build-catalog' to rebuild the catalog with tips.\n");
+
+  // Auto-rebuild catalog so tips are immediately available without server restart
+  console.log("[INFO] Rebuilding catalog with new tips...");
+  try {
+    await buildCatalog();
+    const { invalidateCatalog } = await import("../../catalog/loader.js");
+    invalidateCatalog();
+    console.log("[OK] Catalog rebuilt — tips are live\n");
+  } catch (err) {
+    console.warn(`[WARN] Failed to rebuild catalog: ${err instanceof Error ? err.message : String(err)}`);
+    console.log("[INFO] Run 'lightmcp build-catalog' to rebuild the catalog with tips.\n");
+  }
 
   await stopOllama();
 }
