@@ -171,6 +171,7 @@ export interface DetectedAgent {
   hasLightMCP: boolean;
   canAutoConfigure: boolean;
   note?: string;
+  mcpServersKey: string;
 }
 
 export function detectAgents(): DetectedAgent[] {
@@ -188,11 +189,21 @@ export function detectAgents(): DetectedAgent[] {
       try {
         const raw = readFileSync(agent.configPath, "utf-8");
         const cfg = JSON.parse(raw);
-        const servers = cfg[agent.mcpServersKey];
+        let servers = cfg[agent.mcpServersKey];
         if (servers && typeof servers === "object") {
-          const keys = Object.keys(servers);
-          currentServerCount = keys.length;
-          hasLightMCP = keys.includes("lightmcp");
+          currentServerCount = Object.keys(servers).length;
+          hasLightMCP = Object.keys(servers).includes("lightmcp");
+        }
+        // Fallback: if primary key has no servers, check the alternate key format.
+        // openCode uses "mcp", but restore may have written to "mcpServers" (or vice versa).
+        if (currentServerCount === 0) {
+          const altKey = agent.mcpServersKey === "mcp" ? "mcpServers" : "mcp";
+          const altServers = cfg[altKey];
+          if (altServers && typeof altServers === "object" && !Array.isArray(altServers)) {
+            servers = altServers;
+            currentServerCount = Object.keys(altServers).length;
+            hasLightMCP = Object.keys(altServers).includes("lightmcp");
+          }
         }
       } catch {
         // unreadable config, treat as configExists=true but unparseable
@@ -209,6 +220,7 @@ export function detectAgents(): DetectedAgent[] {
       currentServerCount,
       hasLightMCP,
       canAutoConfigure,
+      mcpServersKey: agent.mcpServersKey,
       ...(canAutoConfigure ? {} : { note: "Config is a binary file — manual setup required." }),
     });
   }
@@ -259,7 +271,7 @@ function applyToConfig(agent: AgentDef, choice: "isolate" | "add"): string {
     }
     writeFileSync(
       fullServersPath,
-      JSON.stringify({ mcpServers: backupServers }, null, 2) + "\n",
+      JSON.stringify({ key: agent.serverEntryStyle, servers: backupServers }, null, 2) + "\n",
       "utf-8"
     );
 
@@ -299,6 +311,7 @@ export function configureAllAgents(
   agents: DetectedAgent[]
 ): string[] {
   const results: string[] = [];
+  const seenConfigs = new Set<string>();
 
   for (const detected of agents) {
     if (!detected.canAutoConfigure) {
@@ -309,6 +322,14 @@ export function configureAllAgents(
       results.push(`[${detected.name}] Manual setup — see instructions below.`);
       continue;
     }
+
+    // Skip duplicate config paths (e.g., openCode CLI and Desktop share the same config)
+    const normalized = path.resolve(detected.configPath);
+    if (seenConfigs.has(normalized)) {
+      results.push(`[${detected.name}] SKIPPED: shares config with another agent`);
+      continue;
+    }
+    seenConfigs.add(normalized);
 
     const agent = getAgentDef(detected.name);
     if (!agent) continue;

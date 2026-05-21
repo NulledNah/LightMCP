@@ -46,6 +46,7 @@ interface AgentScriptData {
   configExists: boolean;
   hasLightMCP: boolean;
   backupPath: string;
+  mcpServersKey: string;
 }
 
 interface RuleScriptData {
@@ -84,6 +85,7 @@ export function generateUninstallScript(
     configExists: a.configExists,
     hasLightMCP: a.hasLightMCP,
     backupPath: path.join(path.dirname(a.configPath), "lightmcp_servers.json"),
+    mcpServersKey: a.mcpServersKey,
   }));
 
   // Deduplicated rule files (openCode CLI + Desktop share AGENTS.md)
@@ -194,14 +196,23 @@ for (var i = 0; i < DATA.agents.length; i++) {
 
   if (exists(bp)) {
     var backup = read(bp);
-    if (backup && backup.mcpServers) {
-      var keys = Object.keys(backup.mcpServers);
+    // Support both legacy format { mcpServers: {...} } and new format { key, servers }
+    var srvs = backup && backup.servers;
+    var key = (backup && backup.key) || "mcpServers";
+    if (!srvs && backup && backup.mcpServers) {
+      srvs = backup.mcpServers;
+      key = "mcpServers";
+    }
+    if (srvs) {
+      var keys = Object.keys(srvs);
       for (var k = 0; k < keys.length; k++) {
-        if (backup.mcpServers[keys[k]] && backup.mcpServers[keys[k]]._removed) {
-          delete backup.mcpServers[keys[k]];
+        if (srvs[keys[k]] && srvs[keys[k]]._removed) {
+          delete srvs[keys[k]];
         }
       }
-      write(agent.configPath, backup);
+      var restored = {};
+      restored[key] = srvs;
+      write(agent.configPath, restored);
       console.log("  [OK] Restored " + agent.name + " to original config");
     } else {
       console.log("  [WARN] Invalid backup for " + agent.name);
@@ -209,10 +220,18 @@ for (var i = 0; i < DATA.agents.length; i++) {
     rm(bp);
   } else if (agent.configExists && agent.hasLightMCP) {
     var current = read(agent.configPath);
-    if (current && current.mcpServers) {
-      delete current.mcpServers.lightmcp;
-      write(agent.configPath, current);
-      console.log("  [OK] Removed LightMCP from " + agent.name);
+    if (current) {
+      var rk = agent.mcpServersKey || "mcpServers";
+      var altRk = rk === "mcp" ? "mcpServers" : "mcp";
+      if (current[rk] && current[rk].lightmcp) {
+        delete current[rk].lightmcp;
+        write(agent.configPath, current);
+        console.log("  [OK] Removed LightMCP from " + agent.name);
+      } else if (current[altRk] && current[altRk].lightmcp) {
+        delete current[altRk].lightmcp;
+        write(agent.configPath, current);
+        console.log("  [OK] Removed LightMCP from " + agent.name);
+      }
     }
   }
   rm(agent.configPath + ".backup");

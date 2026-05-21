@@ -320,14 +320,23 @@ export async function uninstallAll(): Promise<string[]> {
         // Restore agent config from backup
         try {
           const backup = JSON.parse(readFileSync(bp, "utf-8"));
-          if (backup.mcpServers) {
-            for (const key of Object.keys(backup.mcpServers)) {
-              if (backup.mcpServers[key]?._removed) {
-                delete backup.mcpServers[key];
+          // Support both new format { key, servers } and legacy { mcpServers }
+          let srvKey = "mcpServers";
+          let srvs = backup.servers;
+          if (!srvs && backup.mcpServers) {
+            srvs = backup.mcpServers;
+          } else if (backup.key) {
+            srvKey = backup.key;
+          }
+          if (srvs) {
+            for (const srv of Object.keys(srvs)) {
+              if (srvs[srv]?._removed) {
+                delete srvs[srv];
               }
             }
           }
-          writeFileSync(agent.configPath, JSON.stringify(backup, null, 2) + "\n", "utf-8");
+          const restored: Record<string, unknown> = { [srvKey]: srvs ?? {} };
+          writeFileSync(agent.configPath, JSON.stringify(restored, null, 2) + "\n", "utf-8");
           messages.push(`[OK] Restored ${agent.name} to original config`);
         } catch {
           console.warn(`  [WARN] Failed to restore ${agent.name} from backup`);
@@ -340,8 +349,14 @@ export async function uninstallAll(): Promise<string[]> {
         if (agent.configExists && agent.hasLightMCP) {
           try {
             const current = JSON.parse(readFileSync(agent.configPath, "utf-8"));
-            if (current.mcpServers) {
-              delete current.mcpServers.lightmcp;
+            let removed = false;
+            for (const rk of ["mcp", "mcpServers"]) {
+              if (current[rk] && current[rk].lightmcp) {
+                delete current[rk].lightmcp;
+                removed = true;
+              }
+            }
+            if (removed) {
               writeFileSync(agent.configPath, JSON.stringify(current, null, 2) + "\n", "utf-8");
             }
             messages.push(`[OK] Removed LightMCP from ${agent.name}`);
