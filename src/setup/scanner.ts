@@ -168,6 +168,7 @@ export interface DetectedAgent {
   configPath: string;
   configExists: boolean;
   currentServerCount: number;
+  currentServerNames: string[];
   hasLightMCP: boolean;
   canAutoConfigure: boolean;
   note?: string;
@@ -183,6 +184,7 @@ export function detectAgents(): DetectedAgent[] {
 
     const configExists = existsSync(agent.configPath);
     let currentServerCount = 0;
+    let currentServerNames: string[] = [];
     let hasLightMCP = false;
 
     if (configExists) {
@@ -191,8 +193,9 @@ export function detectAgents(): DetectedAgent[] {
         const cfg = JSON.parse(raw);
         let servers = cfg[agent.mcpServersKey];
         if (servers && typeof servers === "object") {
-          currentServerCount = Object.keys(servers).length;
-          hasLightMCP = Object.keys(servers).includes("lightmcp");
+          currentServerNames = Object.keys(servers);
+          currentServerCount = currentServerNames.length;
+          hasLightMCP = currentServerNames.includes("lightmcp");
         }
         // Fallback: if primary key has no servers, check the alternate key format.
         // openCode uses "mcp", but restore may have written to "mcpServers" (or vice versa).
@@ -201,8 +204,9 @@ export function detectAgents(): DetectedAgent[] {
           const altServers = cfg[altKey];
           if (altServers && typeof altServers === "object" && !Array.isArray(altServers)) {
             servers = altServers;
-            currentServerCount = Object.keys(altServers).length;
-            hasLightMCP = Object.keys(altServers).includes("lightmcp");
+            currentServerNames = Object.keys(altServers);
+            currentServerCount = currentServerNames.length;
+            hasLightMCP = currentServerNames.includes("lightmcp");
           }
         }
       } catch {
@@ -218,6 +222,7 @@ export function detectAgents(): DetectedAgent[] {
       configPath: agent.configPath,
       configExists,
       currentServerCount,
+      currentServerNames,
       hasLightMCP,
       canAutoConfigure,
       mcpServersKey: agent.mcpServersKey,

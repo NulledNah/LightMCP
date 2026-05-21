@@ -203,7 +203,10 @@ Tip (max 100 chars):`;
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i];
       const status = a.hasLightMCP ? " (LightMCP already configured)" : "";
-      console.log(`    [${i + 1}] ${a.name} — ${a.currentServerCount} MCP server(s)${status}`);
+      const serverList = a.currentServerNames.length > 0
+        ? `\n         Servers: ${a.currentServerNames.join(", ")}`
+        : "";
+      console.log(`    [${i + 1}] ${a.name} — ${a.currentServerCount} MCP server(s)${status}${serverList}`);
     }
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
