@@ -1,8 +1,9 @@
 // ============================================================
 // LightMCP — Catalog Watcher
-// Watches agent config files and triggers a catalog rebuild
-// when any of them change. Supports multi-agent setups.
+// Watches agent config files + tool_tips.json and triggers
+// a catalog rebuild when any of them change.
 // ============================================================
+import path from "node:path";
 import chokidar, { type FSWatcher } from "chokidar";
 import { buildCatalog } from "./builder.js";
 import { invalidateCatalog } from "./loader.js";
@@ -16,17 +17,29 @@ export async function startCatalogWatcher(): Promise<void> {
   const cfg = await loadConfig();
   if (!cfg.catalog.watchMcpConfig) return;
 
-  const paths = await resolveWatchPaths();
+  const configPaths = await resolveWatchPaths();
+  const tipsPath = path.resolve(process.cwd(), "tool_tips.json");
+  const paths = [...configPaths, tipsPath];
 
   if (paths.length === 0) {
-    console.log("[INFO] No config files to watch — skipping file watcher");
+    console.log("[INFO] No files to watch — skipping file watcher");
     return;
   }
 
-  console.log(`[INFO] Watching ${paths.length} file(s) for changes`);
+  console.log(`[INFO] Watching ${paths.length} path(s) for changes`);
   for (const p of paths) {
     console.log(`  ${p}`);
   }
+
+  const rebuild = async (changedPath: string) => {
+    console.log(`[INFO] File changed (${changedPath}) - rebuilding catalog...`);
+    try {
+      await buildCatalog();
+      invalidateCatalog();
+    } catch (err) {
+      console.error("Catalog rebuild failed:", err);
+    }
+  };
 
   _watcher = chokidar.watch(paths, {
     persistent: true,
@@ -36,15 +49,14 @@ export async function startCatalogWatcher(): Promise<void> {
 
   _watcher.on("change", (changedPath) => {
     if (_rebuildTimer) clearTimeout(_rebuildTimer);
-    _rebuildTimer = setTimeout(async () => {
-      console.log(`[INFO] Config changed (${changedPath}) - rebuilding catalog...`);
-      try {
-        await buildCatalog();
-        invalidateCatalog();
-      } catch (err) {
-        console.error("Catalog rebuild failed:", err);
-      }
-    }, DEBOUNCE_MS);
+    _rebuildTimer = setTimeout(() => { rebuild(changedPath); }, DEBOUNCE_MS);
+  });
+
+  _watcher.on("add", (addedPath) => {
+    if (addedPath.endsWith("tool_tips.json")) {
+      if (_rebuildTimer) clearTimeout(_rebuildTimer);
+      _rebuildTimer = setTimeout(() => { rebuild(addedPath); }, DEBOUNCE_MS);
+    }
   });
 
   _watcher.on("error", (err) => {

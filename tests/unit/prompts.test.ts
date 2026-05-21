@@ -38,7 +38,7 @@ describe('tool_selector.ts', () => {
     expect(systemPrompt).toContain('SELECTION GUIDELINES');
 
     expect(userPrompt).toContain('AVAILABLE TOOLS');
-    expect(userPrompt).toContain('USER TASK TO ACCOMPLISH:');
+    expect(userPrompt).toContain('USER TASK:');
     expect(userPrompt).toContain('"Create a new PCB footprint"');
 
     // Server grouping with domain labels
@@ -61,7 +61,7 @@ describe('tool_selector.ts', () => {
     const { userPrompt } = buildToolSelectionPrompt(task, [], hints);
 
     expect(userPrompt).toContain('Additional Context / Hints: Remember to check DRC, Use mm');
-    expect(userPrompt).toContain('USER TASK TO ACCOMPLISH:');
+    expect(userPrompt).toContain('USER TASK:');
     expect(userPrompt).toContain('"Fix error"');
   });
 
@@ -116,13 +116,13 @@ describe('tool_selector.ts', () => {
 
     const { userPrompt } = buildToolSelectionPrompt("Make a footprint", catalogWithTip);
 
-    expect(userPrompt).toContain('[tip: Use this tool to create a new component footprint for PCB layout]');
+    expect(userPrompt).toContain('TIP: Use this tool to create a new component footprint for PCB layout');
   });
 
-  it('should not include [tip:] when tip is empty', () => {
+  it('should not include TIP: when tip is empty', () => {
     const { userPrompt } = buildToolSelectionPrompt("Make a footprint", mockCatalog);
 
-    // No tool has tip set — [tip: should NOT appear]
-    expect(userPrompt).not.toContain('[tip:');
+    // No tool has tip set — TIP: should NOT appear
+    expect(userPrompt).not.toContain('TIP:');
   });
 });

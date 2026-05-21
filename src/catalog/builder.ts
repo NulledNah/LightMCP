@@ -16,6 +16,7 @@ import type {
   CatalogServer,
 } from "../types.js";
 import { MCP_PROTOCOL_VERSION } from "../types.js";
+import { cleanTip } from "../cli/utils.js";
 
 /** Returns a filtered copy of process.env without dangerous keys
  *  that could be exploited via mcpServers config env overrides.
@@ -301,6 +302,88 @@ async function loadToolTips(): Promise<Record<string, string>> {
   }
 }
 
+let _tipsGenInProgress = false;
+
+/** Auto-generate tips for tools that lack them, in the background.
+ *  Only one generation runs at a time; skips if already in progress. */
+async function autoGenerateMissingTips(tools: ToolEntry[], existingTips: Record<string, string>): Promise<void> {
+  const missing = tools.filter((t) => !existingTips[t.name]);
+  if (missing.length === 0) return;
+  if (_tipsGenInProgress) return;
+
+  _tipsGenInProgress = true;
+  console.log(`[INFO] ${missing.length} tool(s) missing tips — auto-generating in background...`);
+
+  try {
+    const { loadConfig } = await import("../config.js");
+    const cfg = await loadConfig();
+    const { host, model } = cfg.ollama;
+    const { generateServerDomains } = await import("../ollama/keywords.js");
+    const serverDomains = generateServerDomains(missing);
+
+    const tipPrompt = (t: ToolEntry) =>
+      `Write a concise usage tip (max 120 chars) explaining WHEN to select this tool — its role in a workflow.
+CRITICAL: Never mention the tool name anywhere in the tip. Describe only the situation or need.
+  Good: "When you need to quickly find a specific component by name in your library"
+  Bad:  "When you need to find a component, use 'my_tool' to locate it"
+
+Tool name: "${t.name}"
+Server: ${t.serverKey}${serverDomains[t.serverKey] ? ` [${serverDomains[t.serverKey]}]` : ""}
+Description: ${t.description?.slice(0, 400) ?? "No description"}
+
+Tip (max 120 chars):`;
+
+    let generated = 0;
+    for (const t of missing) {
+      try {
+        const res = await fetch(`${host}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            messages: [{ role: "user", content: tipPrompt(t) }],
+            options: { temperature: 0.1, num_predict: 200, top_k: 20, top_p: 0.9 },
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+
+        if (!res.ok) continue;
+
+        const data = (await res.json()) as { message?: { content?: string } };
+        const raw = (data.message?.content ?? "").trim()
+          .replace(/^["']|["']$/g, "")
+          .replace(/^Tip:\s*/i, "");
+        const cleaned = cleanTip(raw, t.name);
+
+        const tip = cleaned.length > 120
+          ? (() => { const s = cleaned.slice(0, 120); const sp = s.lastIndexOf(" "); return sp > 0 ? s.slice(0, sp) : s; })()
+          : cleaned;
+        if (!tip) continue;
+
+        existingTips[t.name] = tip;
+        generated++;
+      } catch {
+        // skip failures silently — tips can be generated later
+      }
+    }
+
+    if (generated > 0) {
+      const tipsPath = path.resolve(process.cwd(), "tool_tips.json");
+      const sorted: Record<string, string> = {};
+      for (const key of Object.keys(existingTips).sort()) {
+        sorted[key] = existingTips[key];
+      }
+      await writeFile(tipsPath, JSON.stringify(sorted, null, 2), "utf-8");
+      console.log(`[OK] Auto-generated ${generated} tip(s) → ${tipsPath}`);
+    }
+  } catch {
+    // Silently ignore — tips are a nice-to-have enhancement
+  } finally {
+    _tipsGenInProgress = false;
+  }
+}
+
 export async function buildCatalog(opts: {
   activeOnly?: boolean;
 } = {}): Promise<ToolCatalog> {
@@ -423,6 +506,9 @@ export async function buildCatalog(opts: {
     const { autoPopulateConfig } = await import("../config.js");
     await autoPopulateConfig(mcpServers);
   } catch { /* skip if config write fails */ }
+
+  // Auto-generate tips for tools missing them (background, non-blocking)
+  autoGenerateMissingTips(tools, toolTips).catch(() => { /* fire-and-forget */ });
 
   return catalog;
 }
