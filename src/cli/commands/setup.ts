@@ -318,6 +318,19 @@ Tip (max 100 chars):`;
     console.log("    Then run: systemctl --user enable --now lightmcp.service");
   }
 
+  // 7. Generate standalone uninstall script
+  const { generateUninstallScript } = await import("../../setup/uninstall_script.js");
+  const { resolveConfigPath } = await import("../../server/manager.js");
+
+  // Re-detect agents to capture post-configuration state
+  const allAgents = detectAgents();
+  const cfgPath = resolveConfigPath();
+  const lmRoot = path.resolve(__dirname, "../../../");
+
+  const scriptPath = generateUninstallScript(allAgents, cfgPath, lmRoot);
+  console.log(`\n[INFO] Uninstall script generated: ${scriptPath}`);
+  console.log("  To fully uninstall: node ~/.lightmcp/uninstall.cjs");
+
   console.log("\n[OK] LightMCP setup complete!");
   console.log("  Then run: lightmcp start\n");
   process.exit(0);
