@@ -5,7 +5,7 @@
 // reasoning + selected tool names.
 // ============================================================
 import type { ToolEntry } from "../types.js";
-import { generateServerDomains } from "../ollama/keywords.js";
+import { generateServerDomains, generateServerCapabilities } from "../ollama/keywords.js";
 
 /** Compact catalog entry sent to the model */
 interface CompactTool {
@@ -84,10 +84,12 @@ Respond with ONLY a valid JSON object — no markdown fences, no extra text.
       : "";
 
   const domains = generateServerDomains(catalog);
+  const capabilities = generateServerCapabilities(catalog);
 
   const groupedBlock = Array.from(grouped.entries())
     .map(([server, tools]) => {
       const domain = serverDomain(server, domains);
+      const cap = capabilities[server] ? ` — ${capabilities[server]}` : "";
       const toolLines = tools
         .map((t) => {
           const paramStr = t.p ? ` ${t.p}` : "";
@@ -95,7 +97,7 @@ Respond with ONLY a valid JSON object — no markdown fences, no extra text.
           return `  - "${t.n}": ${tipStr}`;
         })
         .join("\n");
-      return `=== ${server} [${domain}] ===\n${toolLines}`;
+      return `=== ${server} [${domain}]${cap} ===\n${toolLines}`;
     })
     .join("\n\n");
 
