@@ -124,11 +124,11 @@ export class McpServerManager {
       this._idleInterval = null;
     }
     if (this.mcpServer) {
-      try { await this.mcpServer.close(); } catch { /* ignore */ }
+      try { await this.mcpServer.close(); } catch (err) { if (process.env.DEBUG === 'true') console.error('[DEBUG] mcpServer.close failed:', err); }
       this.mcpServer = null;
     }
     if (this.transportHandle) {
-      try { await this.transportHandle.stop(); } catch { /* ignore */ }
+      try { await this.transportHandle.stop(); } catch (err) { if (process.env.DEBUG === 'true') console.error('[DEBUG] transportHandle.stop failed:', err); }
       this.transportHandle = null;
     }
   }

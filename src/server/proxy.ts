@@ -128,8 +128,8 @@ export class ProxyPool {
       try {
         await conn.client.close();
         console.log(`  [PROXY] Closed connection to ${key}`);
-      } catch {
-        // ignore
+      } catch (err) {
+        if (process.env.DEBUG === 'true') console.error(`[DEBUG] Failed to close connection to ${key}:`, err);
       }
     }
     this._pool.clear();
