@@ -24,13 +24,18 @@ function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   const keywords = generateDomainKeywords(catalog);
 
   // Short tasks (≤3 content words) have too few tokens for reliable
-  // keyword matching — skip pre-filter, let the LLM handle selection.
+  // keyword matching — skip keyword pre-filter, use domain filter only.
   const contentWords = lower.split(/\s+/).filter(w => w.length >= 2);
-  if (contentWords.length <= 3) {
-    if (process.env.LIGHTMCP_VERBOSE) {
-      console.log(`\n[DEBUG] Pre-filter: short task ("${task}") — sending full catalog (${catalog.length} tools)`);
+  const isShort = contentWords.length <= 3;
+
+  if (isShort) {
+    const filtered = filterByDomain(lower, catalog);
+    if (filtered.length < catalog.length && process.env.LIGHTMCP_VERBOSE) {
+      console.log(`\n[DEBUG] Pre-filter: short task ("${task}") — domain-filtered to ${filtered.length} tools`);
     }
-    return catalog;
+    // If domain filter excluded everything, fall back to full catalog
+    if (filtered.length === 0) return catalog;
+    return filtered;
   }
 
   // Collect matched servers
@@ -48,6 +53,31 @@ function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   // No domain match → send full catalog (backward compatible)
   if (matched.size === 0) return catalog;
 
+  // Domain-aware filtering: when the task has clear domain signals,
+  // exclude servers from conflicting domains to prevent LLM confusion.
+  if (matched.size > 1) {
+    const matchedServers = [...matched];
+    const domainScores = classifyTaskDomains(lower);
+    const totalScore = Object.values(domainScores).reduce((a, b) => a + b, 0);
+    // Only apply domain exclusion when the task has a DOMINANT domain
+    // (score >= 2) to avoid excluding servers on ambiguous terms like "step".
+    const strongDomains = Object.entries(domainScores)
+      .filter(([, score]) => score >= 2)
+      .map(([d]) => d);
+
+    if (strongDomains.length > 0 && totalScore >= 2) {
+      for (const server of [...matched]) {
+        const serverDomain = inferServerDomain(server);
+        if (serverDomain && !strongDomains.includes(serverDomain)) {
+          matched.delete(server);
+          if (process.env.LIGHTMCP_VERBOSE) {
+            console.log(`\n[DEBUG] Pre-filter: excluded "${server}" (domain ${serverDomain}, task domains: [${strongDomains.join(", ")}])`);
+          }
+        }
+      }
+    }
+  }
+
   const filtered = catalog.filter((t) => matched.has(t.serverKey));
 
   // Safety: if filtering removed ALL tools, fall back to full catalog
@@ -58,6 +88,89 @@ function filterCatalogByTask(task: string, catalog: ToolEntry[]): ToolEntry[] {
   }
 
   return filtered;
+}
+
+function filterByDomain(task: string, catalog: ToolEntry[]): ToolEntry[] {
+  const domainScores = classifyTaskDomains(task);
+  const totalScore = Object.values(domainScores).reduce((a, b) => a + b, 0);
+  // For short tasks, use a lower threshold — any domain signal is significant.
+  const strongDomains = Object.entries(domainScores)
+    .filter(([, score]) => score > 0)
+    .map(([d]) => d);
+
+  if (strongDomains.length === 0 || totalScore === 0) return catalog;
+
+  // Collect all server keys
+  const allServers = new Set(catalog.map(t => t.serverKey));
+  for (const srv of allServers) {
+    const srvDomain = inferServerDomain(srv);
+    if (srvDomain && !strongDomains.includes(srvDomain)) {
+      allServers.delete(srv);
+      if (process.env.LIGHTMCP_VERBOSE) {
+        console.log(`[DEBUG] Domain filter: excluded "${srv}" (domain ${srvDomain}, task: [${strongDomains.join(", ")}])`);
+      }
+    }
+  }
+
+  return catalog.filter(t => allServers.has(t.serverKey));
+}
+
+const DOMAIN_WORDS: Record<string, string[]> = {
+  "3d": ["cube", "sphere", "cylinder", "cone", "mesh", "3d", "render", "scene",
+         "solid", "surface", "extrude", "primitive", "sculpt", "animate", "stl",
+         "step", "obj", "cad", "sketch", "geometry", "modeling", "fusion",
+         "blender", "maya", "shape", "polygon", "vertex", "edge", "face"],
+  "pcb": ["pcb", "circuit", "board", "schematic", "footprint", "trace", "via",
+          "pad", "component", "bom", "gerber", "netlist", "drill", "copper",
+          "layer", "solder", "kicad", "eagle", "altium", "electronics",
+          "resistor", "capacitor", "microcontroller", "routing"],
+  "web": ["browser", "page", "website", "url", "click", "screenshot", "dom",
+          "html", "css", "javascript", "js", "scrape", "puppeteer",
+          "playwright", "navigate", "form", "tab", "window"],
+  "code": ["code", "function", "class", "module", "debug", "refactor", "test",
+           "lint", "build", "deploy", "git", "api", "endpoint", "compile",
+           "import", "export", "variable", "package", "commit", "branch"],
+  "search": ["search", "find", "query", "knowledge", "documentation", "docs",
+             "reference", "datasheet", "lookup", "answer"],
+};
+
+function classifyTaskDomains(task: string): Record<string, number> {
+  const scores: Record<string, number> = { "3d": 0, "pcb": 0, "web": 0, "code": 0, "search": 0 };
+  for (const [domain, words] of Object.entries(DOMAIN_WORDS)) {
+    for (const w of words) {
+      const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(^|[^a-zA-Z0-9])${escaped}([^a-zA-Z0-9]|$)`).test(task)) {
+        scores[domain]++;
+      }
+    }
+  }
+  return scores;
+}
+
+const DOMAIN_KEY_SIGNALS: Record<string, string> = {
+  "fusion": "3d", "blender": "3d", "cad": "3d", "autodesk": "3d",
+  "onshape": "3d", "sketchup": "3d", "rhino": "3d", "maya": "3d",
+  "mesh": "3d", "geometry": "3d", "render": "3d", "sculpt": "3d",
+  "kicad": "pcb", "eagle": "pcb", "altium": "pcb", "easyeda": "pcb",
+  "pcb": "pcb", "breadboard": "pcb", "schematic": "pcb",
+  "chrome": "web", "browser": "web", "puppeteer": "web", "playwright": "web",
+  "selenium": "web", "scrape": "web",
+  "context7": "search", "brave": "search", "search": "search",
+  "knowledge": "search", "google": "search", "docs": "search",
+  "sequential": "code", "devtools": "code", "refactor": "code",
+  "linter": "code", "codegraph": "code",
+};
+
+function inferServerDomain(serverKey: string): string | null {
+  const words = serverKey.toLowerCase().split(/[-_]+/);
+  for (const signal of Object.keys(DOMAIN_KEY_SIGNALS)) {
+    if (words.includes(signal)) return DOMAIN_KEY_SIGNALS[signal];
+  }
+  // Fallback: substring match (for compound keys like "autodesk-fusion")
+  for (const signal of Object.keys(DOMAIN_KEY_SIGNALS)) {
+    if (serverKey.includes(signal)) return DOMAIN_KEY_SIGNALS[signal];
+  }
+  return null;
 }
 
 interface OllamaMessage {

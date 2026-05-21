@@ -76,7 +76,60 @@ export function generateDomainKeywords(catalog: ToolEntry[]): Record<string, str
     );
   }
 
+  // Semantic domain expansion: add common user-facing terms per inferred domain.
+  // This bridges the gap between user vocabulary ("cube") and tool vocabulary ("mesh").
+  expandDomainKeywords(result, catalog);
+
   return result;
+}
+
+/** Generate a one-line capability summary per server from its tools. */
+export function generateServerCapabilities(catalog: ToolEntry[]): Record<string, string> {
+  const cap: Record<string, string> = {};
+  const serverDescs = new Map<string, string[]>();
+
+  for (const t of catalog) {
+    const descs = serverDescs.get(t.serverKey) ?? [];
+    descs.push(t.name);
+    serverDescs.set(t.serverKey, descs);
+  }
+
+  for (const [server, toolNames] of serverDescs) {
+    const verbs = new Set<string>();
+    const nouns = new Set<string>();
+    for (const name of toolNames) {
+      const parts = name.split("_");
+      for (const p of parts) {
+        const lower = p.toLowerCase();
+        if (["get", "list", "search", "find", "create", "add", "update", "edit",
+             "delete", "remove", "export", "import", "route", "place", "move",
+             "rotate", "execute", "read", "write", "download", "check", "run",
+             "generate", "sync", "snapshot", "open", "save", "set", "annotate",
+             "replace", "duplicate", "align", "group", "refill", "enrich",
+             "suggest", "register", "launch", "suggest", "connect",
+            ].includes(lower)) {
+          verbs.add(lower);
+        }
+        if (["footprint", "symbol", "schematic", "board", "pcb", "component", "trace",
+             "via", "net", "zone", "layer", "pad", "project", "library", "model",
+             "script", "sketch", "geometry", "mesh", "scene", "bom", "gerber",
+             "drill", "drc", "erc", "netlist", "datasheet", "jlcpcb", "part",
+             "parts", "database", "label", "wire", "text", "hole", "outline",
+             "pour", "pair", "category", "tool", "view", "svg", "pdf", "stl",
+             "step", "vrml", "pin", "annotation", "array", "position", "file",
+             "constraints", "rules", "design", "routing", "pattern",
+            ].includes(lower)) {
+          nouns.add(lower);
+        }
+      }
+    }
+
+    const verbList = [...verbs].slice(0, 6);
+    const nounList = [...nouns].slice(0, 6);
+    cap[server] = `Capabilities: ${verbList.join("/")} ${nounList.join("|")}`;
+  }
+
+  return cap;
 }
 
 export function generateServerDomains(catalog: ToolEntry[]): Record<string, string> {
@@ -92,5 +145,150 @@ export function generateServerDomains(catalog: ToolEntry[]): Record<string, stri
     }
   }
 
-  return Object.fromEntries(servers);
+  // Append inferred domain category to labels for stronger LLM guidance
+  const result: Record<string, string> = {};
+  for (const [server, label] of servers) {
+    const domain = inferDomain([...splitIntoWords(server)]);
+    if (domain) {
+      const domainLabels: Record<string, string> = {
+        "3d": "3D CAD / Modeling",
+        "pcb": "PCB / Electronics",
+        "web": "Web / Browser",
+        "code": "Code / Development",
+        "search": "Search / Knowledge",
+      };
+      result[server] = `${label} [${domainLabels[domain] ?? domain}]`;
+    } else {
+      result[server] = label;
+    }
+  }
+
+  return result;
+}
+
+// Domain expansion: maps common user-facing terms to domain categories.
+// When a server's tools/descriptions suggest a domain, the server inherits
+// these expansion keywords so user vocabulary matches (e.g. "cube" → 3D server).
+const DOMAIN_SIGNALS: Record<string, string[]> = {
+  "3d": [
+    "cube", "sphere", "cylinder", "cone", "torus", "pyramid", "box",
+    "mesh", "3d", "geometry", "model", "render", "scene", "solid",
+    "surface", "extrude", "revolve", "primitive", "shape", "sculpt",
+    "animate", "rig", "bone", "texture", "stl", "step", "obj", "cad",
+    "sketch", "assembly", "mechanical", "parametric", "boolean",
+    "polygon", "vertex", "edge", "face", "dimension", "drawing",
+    "blueprint", "prototype", "manufacturing", "cnc", "print",
+  ],
+  "pcb": [
+    "pcb", "circuit", "board", "schematic", "layout", "trace", "via",
+    "pad", "component", "bom", "gerber", "netlist", "drill", "copper",
+    "layer", "solder", "assembly", "footprint", "silkscreen",
+    "electrical", "electronics", "resistor", "capacitor", "diode",
+    "microcontroller", "connector", "header", "routing",
+    "design", "rules", "clearance", "width", "thickness",
+  ],
+  "web": [
+    "web", "browser", "page", "site", "url", "click", "screenshot",
+    "dom", "html", "css", "javascript", "js", "scrape", "puppeteer",
+    "playwright", "navigate", "form", "input", "button", "tab",
+    "window", "iframe", "console", "network", "cookie", "storage",
+  ],
+  "code": [
+    "code", "debug", "refactor", "test", "lint", "build", "deploy",
+    "git", "api", "endpoint", "function", "class", "module", "import",
+    "export", "variable", "type", "interface", "compile", "runtime",
+    "dependency", "package", "version", "commit", "branch", "merge",
+  ],
+  "search": [
+    "search", "find", "query", "lookup", "knowledge", "documentation",
+    "docs", "reference", "specification", "datasheet", "manual",
+    "guide", "tutorial", "example", "sample", "answer", "question",
+  ],
+};
+
+const DOMAIN_KEY_SIGNALS: Record<string, string> = {
+  "fusion": "3d",
+  "blender": "3d",
+  "cad": "3d",
+  "freecad": "3d",
+  "solidworks": "3d",
+  "autodesk": "3d",
+  "onshape": "3d",
+  "sketchup": "3d",
+  "rhino": "3d",
+  "maya": "3d",
+  "mesh": "3d",
+  "model": "3d",
+  "geometry": "3d",
+  "render": "3d",
+  "stl": "3d",
+  "step": "3d",
+  "obj": "3d",
+  "kicad": "pcb",
+  "pcb": "pcb",
+  "circuit": "pcb",
+  "board": "pcb",
+  "eagle": "pcb",
+  "altium": "pcb",
+  "easyeda": "pcb",
+  "schematic": "pcb",
+  "breadboard": "pcb",
+  "chrome": "web",
+  "browser": "web",
+  "puppeteer": "web",
+  "playwright": "web",
+  "selenium": "web",
+  "web": "web",
+  "page": "web",
+  "scrape": "web",
+  "context7": "search",
+  "brave": "search",
+  "search": "search",
+  "knowledge": "search",
+  "docs": "search",
+  "google": "search",
+  "sequential": "code",
+  "code": "code",
+  "devtools": "code",
+  "debug": "code",
+  "refactor": "code",
+  "linter": "code",
+  "lint": "code",
+};
+
+function inferDomain(existingKeywords: string[]): string | null {
+  const scores: Record<string, number> = {};
+  for (const kw of existingKeywords) {
+    const domain = DOMAIN_KEY_SIGNALS[kw];
+    if (domain) {
+      scores[domain] = (scores[domain] ?? 0) + 1;
+    }
+  }
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const [domain, score] of Object.entries(scores)) {
+    if (score > bestScore) { best = domain; bestScore = score; }
+  }
+  return best;
+}
+
+function expandDomainKeywords(
+  result: Record<string, string[]>,
+  catalog: ToolEntry[]
+): void {
+  for (const [server, keywords] of Object.entries(result)) {
+    const domain = inferDomain(keywords);
+    if (!domain) continue;
+
+    const expansions = DOMAIN_SIGNALS[domain];
+    if (!expansions) continue;
+
+    const set = new Set(keywords);
+    for (const w of expansions) {
+      if (!set.has(w)) {
+        keywords.push(w);
+        set.add(w);
+      }
+    }
+  }
 }
