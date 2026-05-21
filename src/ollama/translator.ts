@@ -130,7 +130,7 @@ export async function translateToEnglish(
 ): Promise<string> {
   const translator = await getPipeline();
 
-  const output = await translator(task, {
+  const output = await (translator as any)(task, {
     src_lang: sourceLangCode,
     tgt_lang: "eng_Latn",
   });
