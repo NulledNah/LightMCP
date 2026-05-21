@@ -205,7 +205,7 @@ export async function handleGetTools(input: GetToolsInput): Promise<{
   });
 
   const result = buildToolListResult(selection.task, selection.validEntries, selection.catalog.length);
-  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..."`);
+  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..." → [${selection.validEntries.map(e => e.name).join(", ")}]`);
 
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -223,7 +223,7 @@ export async function handleGetToolsForSession(
   registerSelectedTools(selection.validEntries, mcpServer, registeredTools);
 
   const result = buildToolListResult(selection.task, selection.validEntries, selection.catalog.length);
-  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..."`);
+  console.log(`  [OK] Selected ${selection.validEntries.length}/${selection.catalog.length} tools for: "${(selection.task ?? "").slice(0, 60)}..." → [${selection.validEntries.map(e => e.name).join(", ")}]`);
 
   return {
     content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
